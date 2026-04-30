@@ -19,6 +19,8 @@ const seedUsers = [
     password: 'Admin@123',
     role: 'admin',
     walletBalance: 50000,
+    phone: '9999999999',
+    shopAddress: 'Sevainest HQ, Chennai'
   },
   {
     name: 'Ravi Kumar',
@@ -26,6 +28,8 @@ const seedUsers = [
     password: 'Agent@123',
     role: 'agent',
     walletBalance: 3500,
+    phone: '9876543210',
+    shopAddress: 'Ravi Digital Center, Madurai'
   },
   {
     name: 'Priya Devi',
@@ -33,6 +37,8 @@ const seedUsers = [
     password: 'Agent@123',
     role: 'agent',
     walletBalance: 7200,
+    phone: '9876543211',
+    shopAddress: 'Priya e-Sevai, Coimbatore'
   },
   {
     name: 'Mohammed Faiz',
@@ -40,6 +46,8 @@ const seedUsers = [
     password: 'Agent@123',
     role: 'agent',
     walletBalance: 1800,
+    phone: '9876543212',
+    shopAddress: 'Faiz Smart Services, Trichy'
   },
 ];
 

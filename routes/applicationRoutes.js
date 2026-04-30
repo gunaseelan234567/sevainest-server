@@ -4,6 +4,7 @@ const {
   getMyApplications,
   getApplications,
   updateApplicationStatus,
+  resubmitApplication,
   getAgentStats,
   getAdminDashboardStats,
 } = require('../controllers/applicationController');
@@ -20,5 +21,6 @@ router.get('/stats', authorize('agent'), getAgentStats);
 router.get('/admin-stats', authorize('admin'), getAdminDashboardStats);
 router.get('/', authorize('admin'), getApplications);
 router.patch('/:id', authorize('admin'), updateApplicationStatus);
+router.patch('/:id/resubmit', authorize('agent'), upload.array('appFiles'), resubmitApplication);
 
 module.exports = router;

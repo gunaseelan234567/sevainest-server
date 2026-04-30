@@ -39,8 +39,22 @@ connectDB();
 const app = express();
 
 // Enable CORS - Optimized for Express 5
+const allowedOrigins = [
+  process.env.FRONTEND_URL,
+  'http://localhost:5173',
+  'http://localhost:3000'
+].filter(Boolean);
+
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.indexOf(origin) === -1) {
+      const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
+      return callback(new Error(msg), false);
+    }
+    return callback(null, true);
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
@@ -69,10 +83,9 @@ app.use(mongoSanitize());
 // Prevent http param pollution
 app.use(hpp());
 
-// Rate limiting
 const limiter = rateLimit({
   windowMs: 10 * 60 * 1000, // 10 mins
-  max: 100, // Limit each IP to 100 requests per windowMs
+  max: 1000, // Increased limit to prevent 429 errors
   message: 'Too many requests from this IP, please try again after 10 minutes'
 });
 app.use('/api', limiter);
@@ -80,7 +93,7 @@ app.use('/api', limiter);
 // Specific rate limit for auth routes
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 mins
-  max: 20, // Limit each IP to 20 requests per windowMs
+  max: 100, // Increased from 20 to 100
   message: 'Too many login attempts, please try again after 15 minutes'
 });
 app.use('/api/auth/login', authLimiter);

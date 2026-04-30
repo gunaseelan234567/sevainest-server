@@ -30,9 +30,11 @@ const settingsSchema = new mongoose.Schema({
   // Payment Gateways
   activePaymentGateway: { 
     type: String, 
-    enum: ['cashfree'], 
+    enum: ['cashfree', 'razorpay'], 
     default: 'cashfree' 
   },
+  razorpayKeyId: { type: String, default: '' },
+  razorpayKeySecret: { type: String, default: '' },
   cashfreeAppId: { type: String, default: '' },
   cashfreeSecretKey: { type: String, default: '' },
   cashfreeEnvironment: { type: String, enum: ['sandbox', 'production'], default: 'sandbox' },

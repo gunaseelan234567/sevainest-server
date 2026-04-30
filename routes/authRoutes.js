@@ -10,6 +10,7 @@ const {
   activateAgent,
   forgotPassword,
   resetPassword,
+  bulkEmail,
 } = require('../controllers/authController');
 const { protect, authorize } = require('../middleware/auth');
 
@@ -25,5 +26,6 @@ router.get('/users', protect, authorize('admin'), getUsers);
 router.patch('/activate/:id', protect, authorize('admin'), activateAgent);
 router.post('/forgotpassword', forgotPassword);
 router.post('/resetpassword', resetPassword);
+router.post('/bulk-email', protect, authorize('admin'), bulkEmail);
 
 module.exports = router;

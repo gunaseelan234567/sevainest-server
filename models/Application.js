@@ -39,6 +39,10 @@ const applicationSchema = new mongoose.Schema({
     type: Number,
     required: true,
   },
+  isResubmitted: {
+    type: Boolean,
+    default: false,
+  },
 }, {
   timestamps: true,
 });

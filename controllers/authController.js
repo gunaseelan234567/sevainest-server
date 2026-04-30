@@ -44,7 +44,7 @@ const generateAgentId = async () => {
 // @access  Private/Admin
 exports.register = async (req, res, next) => {
   try {
-    const { name, email, password, role } = req.body;
+    const { name, email, password, role, phone, shopAddress } = req.body;
 
     // Create user (Admins are pre-activated)
     const user = await User.create({
@@ -52,6 +52,8 @@ exports.register = async (req, res, next) => {
       email,
       password,
       role: role || 'agent',
+      phone,
+      shopAddress,
       isActivated: true,
       status: 'active',
       agentId: role === 'agent' ? await generateAgentId() : undefined
@@ -68,7 +70,7 @@ exports.register = async (req, res, next) => {
 // @access  Public
 exports.registerAgent = async (req, res, next) => {
   try {
-    const { name, email, password, paymentMode } = req.body;
+    const { name, email, password, paymentMode, phone, shopAddress } = req.body;
 
     const portalSettings = await Settings.findOne({ key: 'portal' });
     const registrationFee = portalSettings?.agentRegistrationFee || 100;
@@ -78,6 +80,8 @@ exports.registerAgent = async (req, res, next) => {
       name,
       email,
       password,
+      phone,
+      shopAddress,
       role: 'agent',
       paymentMode,
       paymentStatus: paymentMode === 'online' ? 'pending' : 'unpaid',
@@ -351,7 +355,7 @@ exports.logout = async (req, res, next) => {
     expires: new Date(Date.now() + 10 * 1000),
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
-    sameSite: 'strict',
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
   });
 
   res.status(200).json({
@@ -428,6 +432,43 @@ exports.resetPassword = async (req, res) => {
   }
 };
 
+// @desc    Send bulk email to selected agents
+// @route   POST /api/auth/bulk-email
+// @access  Private/Admin
+exports.bulkEmail = async (req, res, next) => {
+  try {
+    const { userIds, subject, message } = req.body;
+
+    if (!userIds || !Array.isArray(userIds) || userIds.length === 0) {
+      return res.status(400).json({ message: 'Please select at least one agent' });
+    }
+
+    if (!subject || !message) {
+      return res.status(400).json({ message: 'Please provide subject and message' });
+    }
+
+    const users = await User.find({ _id: { $in: userIds } });
+
+    // Send emails in parallel
+    const emailPromises = users.map(user => 
+      sendEmail({
+        email: user.email,
+        subject: subject,
+        message: `Hello ${user.name},\n\n${message}\n\nBest regards,\nSevainest Admin Team`
+      })
+    );
+
+    await Promise.all(emailPromises);
+
+    res.status(200).json({
+      success: true,
+      message: `Emails sent successfully to ${users.length} agents`
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
 // Get token from model, create cookie and send response
 const sendTokenResponse = (user, statusCode, res) => {
   // Create token
@@ -441,7 +482,7 @@ const sendTokenResponse = (user, statusCode, res) => {
     ),
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
-    sameSite: 'strict',
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
   };
 
   res

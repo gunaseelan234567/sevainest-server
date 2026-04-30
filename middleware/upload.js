@@ -12,12 +12,12 @@ const storage = multer.diskStorage({
       dest = 'uploads/services';
     } else if (file.fieldname === 'proofImage') {
       dest = 'uploads/proofs';
-    } else if (file.fieldname === 'appFile') {
+    } else if (file.fieldname === 'appFile' || file.fieldname === 'appFiles') {
       dest = 'uploads/applications';
     }
 
-    // Make sure path exists relative to where server runs
-    const fullPath = path.join(process.cwd(), dest);
+    // Make sure path exists
+    const fullPath = path.join(__dirname, '..', dest);
     if (!fs.existsSync(fullPath)) {
       fs.mkdirSync(fullPath, { recursive: true });
     }

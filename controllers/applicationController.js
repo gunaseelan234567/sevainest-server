@@ -20,7 +20,7 @@ exports.submitApplication = async (req, res, next) => {
     const uploadedFiles = req.files ? req.files.map(file => ({
       fieldName: file.fieldname,
       fileName: file.originalname,
-      fileUrl: `/uploads/applications/${file.filename}`
+      fileUrl: `/${file.path.replace(/\\/g, '/')}`
     })) : [];
 
     // Get service details
@@ -109,6 +109,25 @@ exports.updateApplicationStatus = async (req, res, next) => {
     application.status = status;
     application.adminRemark = adminRemark || application.adminRemark;
 
+    // If rejected, refund the chargeDeducted to the agent's wallet
+    if (status === 'rejected') {
+      const agent = await User.findById(application.agentId);
+      if (agent) {
+        agent.walletBalance += application.chargeDeducted;
+        await agent.save();
+
+        // Log refund transaction
+        await WalletTransaction.create({
+          agentId: agent._id,
+          type: 'credit',
+          amount: application.chargeDeducted,
+          reason: `Refund for rejected application ${application.applicationId}`,
+          performedBy: req.user.id,
+          balanceAfter: agent.walletBalance
+        });
+      }
+    }
+
     await application.save();
 
     // Notify agent via email
@@ -121,12 +140,61 @@ exports.updateApplicationStatus = async (req, res, next) => {
         await sendEmail({
           email: populatedApp.agentId.email,
           subject: `Application Update: ${populatedApp.applicationId} - ${status.toUpperCase()}`,
-          message: `Hello ${populatedApp.agentId.name},\n\nYour application for "${populatedApp.serviceId.title}" has been updated.\n\nApplication ID: ${populatedApp.applicationId}\nNew Status: ${status.toUpperCase()}\n\nRemark: ${adminRemark || 'None'}\n\nPlease log in to your dashboard to see more details.\n\nBest regards,\nSevainest Team`,
+          message: `Hello ${populatedApp.agentId.name},\n\nYour application for "${populatedApp.serviceId.title}" has been updated.\n\nApplication ID: ${populatedApp.applicationId}\nNew Status: ${status.toUpperCase()}\n\nRemark: ${adminRemark || 'None'}\n\n${status === 'rejected' ? `Note: Since the application was rejected, the fee of ₹${populatedApp.chargeDeducted} has been refunded to your wallet.\n\n` : ''}Please log in to your dashboard to see more details.\n\nBest regards,\nSevainest Team`,
         });
       }
     } catch (err) {
       console.error('Status update email could not be sent');
     }
+
+    res.status(200).json({ success: true, data: application });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// @desc    Resubmit a returned application (Agent)
+// @route   PATCH /api/applications/:id/resubmit
+// @access  Private/Agent
+exports.resubmitApplication = async (req, res, next) => {
+  try {
+    let { formData } = req.body;
+    if (typeof formData === 'string') {
+      formData = JSON.parse(formData);
+    }
+
+    let application = await Application.findById(req.params.id);
+
+    if (!application) {
+      return res.status(404).json({ message: 'Application not found' });
+    }
+
+    // Ensure it belongs to agent and is in returned status
+    if (application.agentId.toString() !== req.user.id) {
+      return res.status(403).json({ message: 'Not authorized to resubmit this application' });
+    }
+
+    if (application.status !== 'returned') {
+      return res.status(400).json({ message: 'Only returned applications can be resubmitted' });
+    }
+
+    // Update files if provided
+    const newFiles = req.files ? req.files.map(file => ({
+      fieldName: file.fieldname,
+      fileName: file.originalname,
+      fileUrl: `/${file.path.replace(/\\/g, '/')}`
+    })) : [];
+
+    if (newFiles.length > 0) {
+      application.uploadedFiles = newFiles;
+    }
+
+    application.formData = formData;
+    application.status = 'pending';
+    application.adminRemark = ''; // Clear remark
+    application.isResubmitted = true; // Mark as resubmitted
+
+    await application.save();
 
     res.status(200).json({ success: true, data: application });
   } catch (err) {

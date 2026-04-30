@@ -12,7 +12,7 @@ const getOrCreate = async () => {
 // @desc    Get portal settings (public — agents need payment flags)
 // @route   GET /api/settings
 // @access  Private (any logged in user)
-exports.getSettings = async (req, res) => {
+exports.getSettings = async (req, res, next) => {
   try {
     const settings = await getOrCreate();
     
@@ -20,6 +20,12 @@ exports.getSettings = async (req, res) => {
     const settingsObj = settings.toObject();
     if (!settingsObj.razorpayKeyId) settingsObj.razorpayKeyId = process.env.RAZORPAY_KEY_ID;
     if (!settingsObj.cashfreeAppId) settingsObj.cashfreeAppId = process.env.CASHFREE_APP_ID;
+
+    // Filter sensitive data if not admin
+    if (!req.user || req.user.role !== 'admin') {
+      delete settingsObj.razorpayKeySecret;
+      delete settingsObj.cashfreeSecretKey;
+    }
 
     res.status(200).json({ success: true, data: settingsObj });
   } catch (err) {
@@ -30,7 +36,7 @@ exports.getSettings = async (req, res) => {
 // @desc    Update portal settings
 // @route   PATCH /api/settings
 // @access  Private/Admin
-exports.updateSettings = async (req, res) => {
+exports.updateSettings = async (req, res, next) => {
   try {
     const settings = await getOrCreate();
 
