@@ -20,7 +20,7 @@ router.get('/my', authorize('agent'), getMyApplications);
 router.get('/stats', authorize('agent'), getAgentStats);
 router.get('/admin-stats', authorize('admin'), getAdminDashboardStats);
 router.get('/', authorize('admin'), getApplications);
-router.patch('/:id', authorize('admin'), updateApplicationStatus);
+router.patch('/:id', authorize('admin'), upload.single('approvedDoc'), updateApplicationStatus);
 router.patch('/:id/resubmit', authorize('agent'), upload.array('appFiles'), resubmitApplication);
 
 module.exports = router;

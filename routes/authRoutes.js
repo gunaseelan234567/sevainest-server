@@ -11,6 +11,8 @@ const {
   forgotPassword,
   resetPassword,
   bulkEmail,
+  sendVerificationCode,
+  verifyEmail,
 } = require('../controllers/authController');
 const { protect, authorize } = require('../middleware/auth');
 
@@ -22,6 +24,8 @@ router.post('/verify-registration-payment', verifyRegistrationPayment);
 router.post('/login', login);
 router.get('/logout', logout);
 router.get('/me', protect, getMe);
+router.post('/send-verification', protect, sendVerificationCode);
+router.post('/verify-email', protect, verifyEmail);
 router.get('/users', protect, authorize('admin'), getUsers);
 router.patch('/activate/:id', protect, authorize('admin'), activateAgent);
 router.post('/forgotpassword', forgotPassword);

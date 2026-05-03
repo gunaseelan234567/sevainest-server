@@ -432,6 +432,74 @@ exports.resetPassword = async (req, res) => {
   }
 };
 
+// @desc    Send Email Verification Code
+// @route   POST /api/auth/send-verification
+// @access  Private
+exports.sendVerificationCode = async (req, res, next) => {
+  try {
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    // Generate 6-digit OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    user.emailVerificationOTP = otp;
+    user.emailVerificationOTPExpire = Date.now() + 10 * 60 * 1000; // 10 minutes
+    await user.save();
+
+    // Send email
+    try {
+      await sendEmail({
+        email: user.email,
+        subject: 'Verify Your Sevainest Account',
+        message: `Welcome to the New Sevainest!\n\nYour verification code is: ${otp}\n\nPlease enter this code to verify your account and start using our services.\n\nBest regards,\nSevainest Team`,
+      });
+      res.status(200).json({ success: true, message: 'Verification code sent to email' });
+    } catch (err) {
+      user.emailVerificationOTP = undefined;
+      user.emailVerificationOTPExpire = undefined;
+      await user.save();
+      res.status(500).json({ message: 'Email could not be sent' });
+    }
+  } catch (err) {
+    next(err);
+  }
+};
+
+// @desc    Verify Email with OTP
+// @route   POST /api/auth/verify-email
+// @access  Private
+exports.verifyEmail = async (req, res, next) => {
+  try {
+    const { otp } = req.body;
+    const user = await User.findById(req.user.id);
+
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    if (user.emailVerificationOTP !== otp || user.emailVerificationOTPExpire < Date.now()) {
+      return res.status(400).json({ message: 'Invalid or expired verification code' });
+    }
+
+    user.isEmailVerified = true;
+    user.emailVerificationOTP = undefined;
+    user.emailVerificationOTPExpire = undefined;
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Email verified successfully',
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        isEmailVerified: user.isEmailVerified
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
 // @desc    Send bulk email to selected agents
 // @route   POST /api/auth/bulk-email
 // @access  Private/Admin
@@ -498,6 +566,7 @@ const sendTokenResponse = (user, statusCode, res) => {
         role: user.role,
         agentId: user.agentId,
         isActivated: user.isActivated,
+        isEmailVerified: user.isEmailVerified,
         walletBalance: user.walletBalance
       }
     });

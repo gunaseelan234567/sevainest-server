@@ -109,6 +109,14 @@ exports.updateApplicationStatus = async (req, res, next) => {
     application.status = status;
     application.adminRemark = adminRemark || application.adminRemark;
 
+    // Handle Approved Document Upload
+    if (req.file && status === 'approved') {
+      application.approvedDoc = {
+        fileName: req.file.originalname,
+        fileUrl: `/${req.file.path.replace(/\\/g, '/')}`
+      };
+    }
+
     // If rejected, refund the chargeDeducted to the agent's wallet
     if (status === 'rejected') {
       const agent = await User.findById(application.agentId);

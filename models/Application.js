@@ -43,6 +43,10 @@ const applicationSchema = new mongoose.Schema({
     type: Boolean,
     default: false,
   },
+  approvedDoc: {
+    fileName: String,
+    fileUrl: String,
+  },
 }, {
   timestamps: true,
 });
