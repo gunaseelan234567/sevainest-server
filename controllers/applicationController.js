@@ -58,6 +58,18 @@ exports.submitApplication = async (req, res, next) => {
       balanceAfter: user.walletBalance
     });
 
+    // Notify agent via email
+    try {
+      await sendEmail({
+        email: user.email,
+        subject: `Application Submitted: ${application.applicationId}`,
+        message: `Hello ${user.name},\n\nYour application for "${service.title}" has been successfully submitted.\n\nApplication ID: ${application.applicationId}\nCharge Deducted: ₹${service.chargeAmount}\n\nOur team will review your application soon. You can track the status in your dashboard.\n\nBest regards,\nSevainest Team`,
+      });
+      console.log(`✅ Submission email sent to ${user.email} for ${application.applicationId}`);
+    } catch (err) {
+      console.error(`❌ Submission email could not be sent: ${err.message}`);
+    }
+
     res.status(201).json({ success: true, data: application });
   } catch (err) {
     next(err);
@@ -148,11 +160,12 @@ exports.updateApplicationStatus = async (req, res, next) => {
         await sendEmail({
           email: populatedApp.agentId.email,
           subject: `Application Update: ${populatedApp.applicationId} - ${status.toUpperCase()}`,
-          message: `Hello ${populatedApp.agentId.name},\n\nYour application for "${populatedApp.serviceId.title}" has been updated.\n\nApplication ID: ${populatedApp.applicationId}\nNew Status: ${status.toUpperCase()}\n\nRemark: ${adminRemark || 'None'}\n\n${status === 'rejected' ? `Note: Since the application was rejected, the fee of ₹${populatedApp.chargeDeducted} has been refunded to your wallet.\n\n` : ''}Please log in to your dashboard to see more details.\n\nBest regards,\nSevainest Team`,
+          message: `Hello ${populatedApp.agentId.name},\n\nYour application for "${populatedApp.serviceId.title}" has been updated.\n\nApplication ID: ${populatedApp.applicationId}\nNew Status: ${status.toUpperCase()}\n\nRemark: ${adminRemark || 'None'}\n\n${status === 'approved' && populatedApp.approvedDoc ? `Your certificate/document is now ready and available for download in your dashboard.\n\n` : ''}${status === 'rejected' ? `Note: Since the application was rejected, the fee of ₹${populatedApp.chargeDeducted} has been refunded to your wallet.\n\n` : ''}Please log in to your dashboard to see more details.\n\nBest regards,\nSevainest Team`,
         });
+        console.log(`✅ Status update email sent to ${populatedApp.agentId.email} for ${populatedApp.applicationId}`);
       }
     } catch (err) {
-      console.error('Status update email could not be sent');
+      console.error(`❌ Status update email could not be sent to ${application.agentId}: ${err.message}`);
     }
 
     res.status(200).json({ success: true, data: application });

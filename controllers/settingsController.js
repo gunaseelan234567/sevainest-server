@@ -47,7 +47,8 @@ exports.updateSettings = async (req, res, next) => {
       'emailNotifications', 'applicationAlerts', 'walletAlerts', 'smsNotifications',
       'agentRegistrationFee',
       'activePaymentGateway', 'razorpayKeyId', 'razorpayKeySecret',
-      'cashfreeAppId', 'cashfreeSecretKey', 'cashfreeEnvironment'
+      'cashfreeAppId', 'cashfreeSecretKey', 'cashfreeEnvironment',
+      'manualPaymentQR', 'upiId'
     ];
 
     allowed.forEach(field => {
@@ -55,6 +56,10 @@ exports.updateSettings = async (req, res, next) => {
         settings[field] = req.body[field];
       }
     });
+
+    if (req.file) {
+      settings.manualPaymentQR = `${req.protocol}://${req.get('host')}/${req.file.path.replace(/\\/g, '/')}`;
+    }
 
     await settings.save();
     res.status(200).json({ success: true, data: settings });

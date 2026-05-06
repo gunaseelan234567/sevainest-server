@@ -38,6 +38,9 @@ const settingsSchema = new mongoose.Schema({
   cashfreeAppId: { type: String, default: '' },
   cashfreeSecretKey: { type: String, default: '' },
   cashfreeEnvironment: { type: String, enum: ['sandbox', 'production'], default: 'sandbox' },
+  // Manual Payment
+  manualPaymentQR: { type: String, default: '' },
+  upiId: { type: String, default: '' },
 }, {
   timestamps: true
 });

@@ -14,6 +14,8 @@ const storage = multer.diskStorage({
       dest = 'uploads/proofs';
     } else if (file.fieldname === 'appFile' || file.fieldname === 'appFiles') {
       dest = 'uploads/applications';
+    } else if (file.fieldname === 'manualPaymentQR') {
+      dest = 'uploads/settings';
     }
 
     // Make sure path exists

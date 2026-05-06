@@ -448,6 +448,7 @@ exports.sendVerificationCode = async (req, res, next) => {
 
     // Send email
     try {
+      console.log(`🔑 Verification OTP for ${user.email}: ${otp}`);
       await sendEmail({
         email: user.email,
         subject: 'Verify Your Sevainest Account',
@@ -455,10 +456,11 @@ exports.sendVerificationCode = async (req, res, next) => {
       });
       res.status(200).json({ success: true, message: 'Verification code sent to email' });
     } catch (err) {
+      console.error(`❌ Email delivery failed: ${err.message}`);
       user.emailVerificationOTP = undefined;
       user.emailVerificationOTPExpire = undefined;
       await user.save();
-      res.status(500).json({ message: 'Email could not be sent' });
+      res.status(500).json({ message: `Email could not be sent: ${err.message}` });
     }
   } catch (err) {
     next(err);
@@ -476,7 +478,12 @@ exports.verifyEmail = async (req, res, next) => {
     if (!user) return res.status(404).json({ message: 'User not found' });
 
     if (user.emailVerificationOTP !== otp || user.emailVerificationOTPExpire < Date.now()) {
-      return res.status(400).json({ message: 'Invalid or expired verification code' });
+      // Allow '000000' as a bypass in development mode
+      if (process.env.NODE_ENV === 'development' && otp === '000000') {
+        console.log(`⚠️ Development Bypass used for ${user.email}`);
+      } else {
+        return res.status(400).json({ message: 'Invalid or expired verification code' });
+      }
     }
 
     user.isEmailVerified = true;
