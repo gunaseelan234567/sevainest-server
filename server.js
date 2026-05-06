@@ -41,6 +41,8 @@ const app = express();
 // Enable CORS - Optimized for Express 5
 const allowedOrigins = [
   process.env.FRONTEND_URL,
+  'https://www.sevainest.in',
+  'https://sevainest.in',
   'http://localhost:5173',
   'http://localhost:3000'
 ].filter(Boolean);
