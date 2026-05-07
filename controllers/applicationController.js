@@ -264,8 +264,13 @@ exports.getAdminDashboardStats = async (req, res, next) => {
     // 2. Pending Agent Requests
     const pendingAgents = await User.countDocuments({ status: 'pending' });
 
-    // 3. Total Earnings (Sum of all chargeDeducted)
+    // 3. Total Earnings (Sum of all chargeDeducted for the current month)
+    const startOfMonth = new Date();
+    startOfMonth.setDate(1);
+    startOfMonth.setHours(0, 0, 0, 0);
+
     const earningsResult = await Application.aggregate([
+      { $match: { createdAt: { $gte: startOfMonth } } },
       { $group: { _id: null, total: { $sum: '$chargeDeducted' } } }
     ]);
     const totalEarnings = earningsResult.length > 0 ? earningsResult[0].total : 0;
