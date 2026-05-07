@@ -410,14 +410,16 @@ exports.forgotPassword = async (req, res, next) => {
 exports.resetPassword = async (req, res, next) => {
   try {
     const { email, otp, password } = req.body;
+    console.log(`🔑 Attempting password reset for: ${email} with OTP: ${otp}`);
 
     const user = await User.findOne({
-      email,
+      email: { $regex: new RegExp('^' + email + '$', 'i') },
       resetPasswordOTP: otp,
       resetPasswordExpire: { $gt: Date.now() }
     });
 
     if (!user) {
+      console.log(`❌ Password reset failed: User not found or OTP mismatch for ${email}`);
       return res.status(400).json({ message: 'Invalid or expired OTP' });
     }
 
