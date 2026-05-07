@@ -31,30 +31,45 @@ if (missingEnv.length > 0) {
   process.exit(1);
 }
 
-console.log('🚀 Server starting up...');
+// Connect to database
 connectDB();
-console.log('📦 Database connection initiated');
 
 const app = express();
+app.set('trust proxy', 1); // Trust Railway's proxy for correct rate limiting IP detection
 
-// 1. ABSOLUTE FIRST MIDDLEWARE: CORS
+// Enable CORS
+const allowedOrigins = [
+  process.env.FRONTEND_URL,
+  'https://www.sevainest.in',
+  'https://sevainest.in',
+  'https://sevainest.vercel.app',
+  'http://localhost:5173',
+  'http://localhost:3000'
+].map(url => url?.replace(/\/$/, '')) // Remove trailing slashes
+  .filter(Boolean);
+
+console.log('✅ Allowed Origins:', allowedOrigins);
+
 app.use(cors({
-  origin: true,
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+
+    // Normalize origin by removing trailing slash for comparison
+    const normalizedOrigin = origin.replace(/\/$/, '');
+
+    if (allowedOrigins.includes(normalizedOrigin)) {
+      return callback(null, true);
+    } else {
+      console.log(`❌ CORS Blocked for origin: ${origin}`);
+      return callback(new Error('Not allowed by CORS'), false);
+    }
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Set-Cookie'],
-  optionsSuccessStatus: 200
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
+  exposedHeaders: ['Set-Cookie']
 }));
-
-// Handle preflight for all routes
-app.options('*', cors());
-
-console.log('✅ CORS absolute first priority set');
-
-// 2. Health check route (must be before any other middleware)
-app.get('/api/health', (req, res) => {
-  res.status(200).json({ status: 'OK', message: 'Server is reachable' });
-});
 
 // Middleware
 app.use(express.json({ limit: '10mb' }));
@@ -94,6 +109,9 @@ const authLimiter = rateLimit({
 });
 app.use('/api/auth/login', authLimiter);
 app.use('/api/auth/register', authLimiter);
+app.use('/api/auth/forgotpassword', authLimiter);
+app.use('/api/auth/send-verification', authLimiter);
+app.use('/api/auth/verify-email', authLimiter);
 
 // Compression
 app.use(compression());
@@ -153,7 +171,7 @@ app.use((err, req, res, next) => {
   }
 
   const statusCode = res.statusCode === 200 ? 500 : res.statusCode;
-  
+
   res.status(statusCode).json({
     success: false,
     message: error.message || 'Server Error',
@@ -163,8 +181,9 @@ app.use((err, req, res, next) => {
 
 const PORT = process.env.PORT || 5000;
 
-const server = app.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 Server running on 0.0.0.0:${PORT} in ${process.env.NODE_ENV} mode`);
+const server = app.listen(PORT, () => {
+  console.log(`🚀 Server running in ${process.env.NODE_ENV} mode on port ${PORT}`);
+  console.log(`📡 Deployment URL: ${process.env.FRONTEND_URL || 'Localhost'}`);
 });
 
 // Handle unhandled promise rejections
