@@ -329,6 +329,12 @@ exports.getAdminDashboardStats = async (req, res, next) => {
       status: app.status === 'approved' ? 'Success' : app.status === 'pending' ? 'Pending' : 'Warning'
     }));
 
+    // 8. Recent Wallet Transactions
+    const recentTransactions = await WalletTransaction.find()
+      .populate('agentId', 'name')
+      .sort('-createdAt')
+      .limit(6);
+
     res.status(200).json({
       success: true,
       data: {
@@ -340,7 +346,8 @@ exports.getAdminDashboardStats = async (req, res, next) => {
         },
         pieData,
         chartData,
-        recentActivities
+        recentActivities,
+        recentTransactions
       }
     });
   } catch (err) {
