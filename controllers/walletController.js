@@ -37,7 +37,7 @@ const getCashfreeUrl = (settings) => {
 // @desc    Get wallet balance and history
 // @route   GET /api/wallet/history
 // @access  Private/Agent
-exports.getWalletHistory = async (req, res) => {
+exports.getWalletHistory = async (req, res, next) => {
   try {
     const transactions = await WalletTransaction.find({ agentId: req.user.id }).sort('-createdAt');
     const user = await User.findById(req.user.id).select('walletBalance');
@@ -55,7 +55,7 @@ exports.getWalletHistory = async (req, res) => {
 // @desc    Admin: Add funds to user wallet
 // @route   POST /api/wallet/admin/add-funds
 // @access  Private/Admin
-exports.adminAddFunds = async (req, res) => {
+exports.adminAddFunds = async (req, res, next) => {
   try {
     const { userId, amount, reason } = req.body;
 
@@ -90,7 +90,7 @@ exports.adminAddFunds = async (req, res) => {
 // @desc    Admin: Deduct funds from user wallet
 // @route   POST /api/wallet/admin/deduct-funds
 // @access  Private/Admin
-exports.adminDeductFunds = async (req, res) => {
+exports.adminDeductFunds = async (req, res, next) => {
   try {
     const { userId, amount, reason } = req.body;
 
@@ -99,7 +99,7 @@ exports.adminDeductFunds = async (req, res) => {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    if (user.walletBalance < amount) {
+    if (user.walletBalance < Number(amount)) {
       return res.status(400).json({ message: 'Insufficient balance for deduction' });
     }
 
