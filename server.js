@@ -22,9 +22,7 @@ const requiredEnv = [
   'JWT_EXPIRE',
   'PORT',
   'NODE_ENV',
-  'EMAIL_HOST',
-  'EMAIL_USER',
-  'EMAIL_PASS'
+  'RESEND_API_KEY'
 ];
 
 const missingEnv = requiredEnv.filter(env => !process.env[env]);
