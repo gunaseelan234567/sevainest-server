@@ -147,7 +147,7 @@ exports.registerAgent = async (req, res, next) => {
 // @desc    Verify Registration Payment (Cashfree)
 // @route   POST /api/auth/verify-registration
 // @access  Public
-exports.verifyRegistrationPayment = async (req, res) => {
+exports.verifyRegistrationPayment = async (req, res, next) => {
   try {
     const { order_id } = req.body;
     console.log('Verifying Registration Payment:', order_id);
@@ -243,7 +243,7 @@ exports.verifyRegistrationPayment = async (req, res) => {
 // @desc    Activate Agent (Admin only for offline/pending agents)
 // @route   PATCH /api/auth/activate/:id
 // @access  Private/Admin
-exports.activateAgent = async (req, res) => {
+exports.activateAgent = async (req, res, next) => {
   try {
     const user = await User.findById(req.params.id);
     if (!user) return res.status(404).json({ message: 'User not found' });
@@ -284,7 +284,7 @@ exports.login = async (req, res, next) => {
     }
 
     // Check for user
-    const user = await User.findOne({ email }).select('+password');
+    const user = await User.findOne({ email: { $regex: new RegExp(`^${email}$`, 'i') } }).select('+password');
 
     if (!user) {
       return res.status(401).json({ message: 'Invalid credentials' });
@@ -367,10 +367,11 @@ exports.logout = async (req, res, next) => {
 // @desc    Forgot Password - Send OTP
 // @route   POST /api/auth/forgotpassword
 // @access  Public
-exports.forgotPassword = async (req, res) => {
+exports.forgotPassword = async (req, res, next) => {
   try {
     const { email } = req.body;
-    const user = await User.findOne({ email });
+    console.log(`🔍 Forgot password request for: ${email}`);
+    const user = await User.findOne({ email: { $regex: new RegExp(`^${email}$`, 'i') } });
 
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
@@ -406,7 +407,7 @@ exports.forgotPassword = async (req, res) => {
 // @desc    Reset Password
 // @route   POST /api/auth/resetpassword
 // @access  Public
-exports.resetPassword = async (req, res) => {
+exports.resetPassword = async (req, res, next) => {
   try {
     const { email, otp, password } = req.body;
 
@@ -442,9 +443,13 @@ exports.sendVerificationCode = async (req, res, next) => {
 
     // Generate 6-digit OTP
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    console.log(`🎲 Generated OTP: ${otp} for user: ${user.email}`);
     user.emailVerificationOTP = otp;
     user.emailVerificationOTPExpire = Date.now() + 10 * 60 * 1000; // 10 minutes
+    
+    console.log(`💾 Saving user with OTP...`);
     await user.save();
+    console.log(`✅ User saved successfully`);
 
     // Send email
     try {
