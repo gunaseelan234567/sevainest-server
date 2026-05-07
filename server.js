@@ -38,28 +38,38 @@ connectDB();
 
 const app = express();
 
-// Enable CORS - Optimized for Express 5
+// Enable CORS
 const allowedOrigins = [
   process.env.FRONTEND_URL,
   'https://www.sevainest.in',
   'https://sevainest.in',
+  'https://sevainest.vercel.app',
   'http://localhost:5173',
   'http://localhost:3000'
-].filter(Boolean);
+].map(url => url?.replace(/\/$/, '')) // Remove trailing slashes
+ .filter(Boolean);
+
+console.log('✅ Allowed Origins:', allowedOrigins);
 
 app.use(cors({
   origin: function (origin, callback) {
     // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
-    if (allowedOrigins.indexOf(origin) === -1) {
-      const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
-      return callback(new Error(msg), false);
+    
+    // Normalize origin by removing trailing slash for comparison
+    const normalizedOrigin = origin.replace(/\/$/, '');
+    
+    if (allowedOrigins.includes(normalizedOrigin)) {
+      return callback(null, true);
+    } else {
+      console.log(`❌ CORS Blocked for origin: ${origin}`);
+      return callback(new Error('Not allowed by CORS'), false);
     }
-    return callback(null, true);
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
+  exposedHeaders: ['Set-Cookie']
 }));
 
 // Middleware
