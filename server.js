@@ -37,14 +37,24 @@ console.log('📦 Database connection initiated');
 
 const app = express();
 
-// Simple CORS for debugging - Allow All
+// 1. ABSOLUTE FIRST MIDDLEWARE: CORS
 app.use(cors({
   origin: true,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Set-Cookie'],
+  optionsSuccessStatus: 200
 }));
-console.log('✅ CORS initialized (Allow All)');
+
+// Handle preflight for all routes
+app.options('*', cors());
+
+console.log('✅ CORS absolute first priority set');
+
+// 2. Health check route (must be before any other middleware)
+app.get('/api/health', (req, res) => {
+  res.status(200).json({ status: 'OK', message: 'Server is reachable' });
+});
 
 // Middleware
 app.use(express.json({ limit: '10mb' }));
