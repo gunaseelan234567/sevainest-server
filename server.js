@@ -31,44 +31,20 @@ if (missingEnv.length > 0) {
   process.exit(1);
 }
 
-// Connect to database
+console.log('🚀 Server starting up...');
 connectDB();
+console.log('📦 Database connection initiated');
 
 const app = express();
 
-// Enable CORS
-const allowedOrigins = [
-  process.env.FRONTEND_URL,
-  'https://www.sevainest.in',
-  'https://sevainest.in',
-  'https://sevainest.vercel.app',
-  'http://localhost:5173',
-  'http://localhost:3000'
-].map(url => url?.replace(/\/$/, '')) // Remove trailing slashes
- .filter(Boolean);
-
-console.log('✅ Allowed Origins:', allowedOrigins);
-
+// Simple CORS for debugging - Allow All
 app.use(cors({
-  origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
-    
-    // Normalize origin by removing trailing slash for comparison
-    const normalizedOrigin = origin.replace(/\/$/, '');
-    
-    if (allowedOrigins.includes(normalizedOrigin)) {
-      return callback(null, true);
-    } else {
-      console.log(`❌ CORS Blocked for origin: ${origin}`);
-      return callback(new Error('Not allowed by CORS'), false);
-    }
-  },
+  origin: true,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
-  exposedHeaders: ['Set-Cookie']
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Set-Cookie'],
 }));
+console.log('✅ CORS initialized (Allow All)');
 
 // Middleware
 app.use(express.json({ limit: '10mb' }));
@@ -177,8 +153,8 @@ app.use((err, req, res, next) => {
 
 const PORT = process.env.PORT || 5000;
 
-const server = app.listen(PORT, () => {
-  console.log(`Server running in ${process.env.NODE_ENV} mode on port ${PORT}`);
+const server = app.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 Server running on 0.0.0.0:${PORT} in ${process.env.NODE_ENV} mode`);
 });
 
 // Handle unhandled promise rejections
