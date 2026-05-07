@@ -1,11 +1,15 @@
 const nodemailer = require('nodemailer');
 
 const sendEmail = async (options) => {
-  console.log(`📧 Attempting to send email via ${process.env.EMAIL_HOST} as ${process.env.EMAIL_USER}...`);
+  // Masked logging for debugging
+  const maskedUser = process.env.EMAIL_USER ? `${process.env.EMAIL_USER.substring(0, 3)}...` : 'MISSING';
+  const maskedPass = process.env.EMAIL_PASS ? `${process.env.EMAIL_PASS.substring(0, 3)}...` : 'MISSING';
+  console.log(`📧 Config: Host=${process.env.EMAIL_HOST}, Port=${process.env.EMAIL_PORT}, User=${maskedUser}, Pass=${maskedPass}`);
+
   const transporterConfig = {
-    host: process.env.EMAIL_HOST,
-    port: Number(process.env.EMAIL_PORT),
-    secure: process.env.EMAIL_PORT === '465',
+    host: process.env.EMAIL_HOST || 'smtp.gmail.com',
+    port: Number(process.env.EMAIL_PORT) || 465,
+    secure: (process.env.EMAIL_PORT === '465' || !process.env.EMAIL_PORT),
     auth: {
       user: process.env.EMAIL_USER,
       pass: process.env.EMAIL_PASS,
@@ -16,17 +20,8 @@ const sendEmail = async (options) => {
     connectionTimeout: 10000,
     greetingTimeout: 10000,
     socketTimeout: 10000,
-    family: 4 // Force IPv4 to avoid IPv6 ENETUNREACH errors on Railway
+    family: 4 // Strictly force IPv4
   };
-
-  // Optimization for Gmail
-  if (process.env.EMAIL_HOST === 'smtp.gmail.com') {
-    // Keep family: 4 and auth, but use service: 'gmail'
-    delete transporterConfig.host;
-    delete transporterConfig.port;
-    delete transporterConfig.secure;
-    transporterConfig.service = 'gmail';
-  }
 
   const transporter = nodemailer.createTransport(transporterConfig);
   
@@ -39,7 +34,7 @@ const sendEmail = async (options) => {
   };
  
   try {
-    console.log(`📤 Sending email to ${options.email}...`);
+    console.log(`📤 Sending email to ${options.email} via IPv4...`);
     const info = await transporter.sendMail(message);
     console.log(`✅ Email sent: ${info.messageId}`);
     return info;
