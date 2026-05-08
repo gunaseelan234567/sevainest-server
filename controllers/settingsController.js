@@ -58,7 +58,7 @@ exports.updateSettings = async (req, res, next) => {
     });
 
     if (req.file) {
-      settings.manualPaymentQR = `${req.protocol}://${req.get('host')}/${req.file.path.replace(/\\/g, '/')}`;
+      settings.manualPaymentQR = `/uploads/settings/${req.file.filename}`;
     }
 
     await settings.save();

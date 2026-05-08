@@ -20,7 +20,7 @@ exports.submitApplication = async (req, res, next) => {
     const uploadedFiles = req.files ? req.files.map(file => ({
       fieldName: file.fieldname,
       fileName: file.originalname,
-      fileUrl: `/${file.path.replace(/\\/g, '/')}`
+      fileUrl: `/uploads/applications/${file.filename}`
     })) : [];
 
     // Get service details
@@ -125,7 +125,7 @@ exports.updateApplicationStatus = async (req, res, next) => {
     if (req.file && status === 'approved') {
       application.approvedDoc = {
         fileName: req.file.originalname,
-        fileUrl: `/${req.file.path.replace(/\\/g, '/')}`
+        fileUrl: `/uploads/others/${req.file.filename}`
       };
     }
 
@@ -203,7 +203,7 @@ exports.resubmitApplication = async (req, res, next) => {
     const newFiles = req.files ? req.files.map(file => ({
       fieldName: file.fieldname,
       fileName: file.originalname,
-      fileUrl: `/${file.path.replace(/\\/g, '/')}`
+      fileUrl: `/uploads/applications/${file.filename}`
     })) : [];
 
     if (newFiles.length > 0) {
