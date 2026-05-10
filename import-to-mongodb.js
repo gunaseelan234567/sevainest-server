@@ -46,12 +46,15 @@ async function importData() {
         .map(agent => ({
           name: agent.name || 'Unknown Agent',
           email: (agent.email || `agent_${agent.wp_user_id}@test.com`).toLowerCase(),
+          phone: agent.mobile || '',
           password: hashedPassword,
           role: 'agent',
           walletBalance: 0,
           status: agent.status === 'approved' ? 'active' : 'pending',
           isActivated: agent.status === 'approved',
-          wp_user_id: agent.wp_user_id // FIXED: Using wp_user_id for mapping
+          wp_user_id: agent.wp_user_id, // FIXED: Using wp_user_id for mapping
+          createdAt: agent.created_at ? new Date(agent.created_at) : new Date(),
+          updatedAt: agent.created_at ? new Date(agent.created_at) : new Date()
         }));
 
       const result = await db.collection('users').insertMany(agentsToInsert);
