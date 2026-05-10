@@ -136,6 +136,8 @@ app.use('/api/wallet', require('./routes/walletRoutes'));
 app.use('/api/notice', require('./routes/noticeRoutes'));
 app.use('/api/tickets', require('./routes/ticketRoutes'));
 app.use('/api/settings', require('./routes/settingsRoutes'));
+app.use('/api/products', require('./routes/productRoutes'));
+app.use('/api/orders', require('./routes/orderRoutes'));
 
 // 404 handler
 app.use((req, res, next) => {

@@ -30,39 +30,44 @@ async function importData() {
 
     if (fs.existsSync(agentsPath)) {
       const agentsData = JSON.parse(fs.readFileSync(agentsPath, 'utf-8'));
-      console.log(`Clearing 'users' collection (agents only)...`);
-      await db.collection('users').deleteMany({ role: 'agent' });
+      console.log(`Synchronizing agents (Adding missing ones)...`);
+      
+      const existingAgents = await db.collection('users').find({ role: 'agent' }).toArray();
+      const existingEmails = new Set(existingAgents.map(a => a.email.toLowerCase()));
 
       const hashedPassword = await bcrypt.hash('Agent@123', 10);
-      const seenEmails = new Set();
-      const agentsToInsert = agentsData
-        .filter(agent => {
-          if (!agent.email) return true;
-          const email = agent.email.toLowerCase();
-          if (seenEmails.has(email)) return false;
-          seenEmails.add(email);
-          return true;
-        })
-        .map(agent => ({
+      const seenEmailsInJson = new Set();
+      
+      let insertedCount = 0;
+      for (const agent of agentsData) {
+        if (!agent.email) continue;
+        const email = agent.email.toLowerCase();
+        
+        // Skip if already in DB or already seen in this JSON loop
+        if (existingEmails.has(email) || seenEmailsInJson.has(email)) continue;
+        seenEmailsInJson.add(email);
+
+        await db.collection('users').insertOne({
           name: agent.name || 'Unknown Agent',
-          email: (agent.email || `agent_${agent.wp_user_id}@test.com`).toLowerCase(),
+          email: email,
           phone: agent.mobile || '',
           password: hashedPassword,
           role: 'agent',
           walletBalance: 0,
           status: agent.status === 'approved' ? 'active' : 'pending',
           isActivated: agent.status === 'approved',
-          wp_user_id: agent.wp_user_id, // FIXED: Using wp_user_id for mapping
+          wp_user_id: agent.wp_user_id,
           createdAt: agent.created_at ? new Date(agent.created_at) : new Date(),
           updatedAt: agent.created_at ? new Date(agent.created_at) : new Date()
-        }));
+        });
+        insertedCount++;
+      }
 
-      const result = await db.collection('users').insertMany(agentsToInsert);
-      console.log(`✅ Inserted ${result.insertedCount} agents.`);
+      console.log(`✅ Added ${insertedCount} new agents from JSON.`);
 
-      // Create mapping using wp_user_id
-      const insertedAgents = await db.collection('users').find({ role: 'agent' }).toArray();
-      insertedAgents.forEach(a => {
+      // Update mapping for all agents (old + new)
+      const allAgents = await db.collection('users').find({ role: 'agent' }).toArray();
+      allAgents.forEach(a => {
         if (a.wp_user_id) agentWpToMongoId[a.wp_user_id] = a._id;
       });
     }
