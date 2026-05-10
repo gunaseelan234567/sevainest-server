@@ -30,13 +30,50 @@ const getCashfreeUrl = (settings) => {
 
 // Helper to generate unique Agent ID
 const generateAgentId = async () => {
-  const lastUser = await User.findOne({ agentId: { $ne: null } }).sort({ createdAt: -1 });
-  let nextId = 1001;
-  if (lastUser && lastUser.agentId) {
-    const lastNum = parseInt(lastUser.agentId.split('-')[1]);
-    nextId = lastNum + 1;
+  try {
+    // 1. Find the highest existing numeric ID in AGT-XXXX format
+    // We fetch all to handle potential gaps or non-sequential legacy data
+    const users = await User.find({ 
+      agentId: { $regex: /^AGT-\d+$/ } 
+    }).select('agentId').lean();
+
+    let maxId = 1000; // Starting base
+    
+    if (users && users.length > 0) {
+      users.forEach(u => {
+        const match = u.agentId.match(/AGT-(\d+)/);
+        if (match) {
+          const num = parseInt(match[1]);
+          if (!isNaN(num) && num > maxId) {
+            maxId = num;
+          }
+        }
+      });
+    }
+
+    // 2. Propose new ID and verify it's truly unique
+    let nextNum = maxId + 1;
+    let finalId = `AGT-${nextNum}`;
+    let isUnique = false;
+    let attempts = 0;
+
+    while (!isUnique && attempts < 10) {
+      const existing = await User.findOne({ agentId: finalId });
+      if (!existing) {
+        isUnique = true;
+      } else {
+        nextNum++;
+        finalId = `AGT-${nextNum}`;
+        attempts++;
+      }
+    }
+
+    console.log(`🎫 Generated Unique Agent ID: ${finalId}`);
+    return finalId;
+  } catch (err) {
+    console.error('❌ Error generating Agent ID:', err);
+    return `AGT-${Date.now().toString().slice(-4)}${Math.floor(Math.random() * 99)}`;
   }
-  return `AGT-${nextId}`;
 };
 
 // @desc    Register user (Admin created)
@@ -73,7 +110,13 @@ exports.registerAgent = async (req, res, next) => {
     const { name, email, password, paymentMode, phone, shopAddress } = req.body;
 
     const portalSettings = await Settings.findOne({ key: 'portal' });
-    const registrationFee = portalSettings?.agentRegistrationFee || 100;
+    const registrationFee = portalSettings?.agentRegistrationFee || 0;
+
+    // Check if user already exists
+    const existingUser = await User.findOne({ email: email.toLowerCase() });
+    if (existingUser) {
+      return res.status(400).json({ message: 'An account with this email already exists' });
+    }
 
     // Create user in pending state
     const user = await User.create({
@@ -83,13 +126,14 @@ exports.registerAgent = async (req, res, next) => {
       phone,
       shopAddress,
       role: 'agent',
-      paymentMode,
-      paymentStatus: paymentMode === 'online' ? 'pending' : 'unpaid',
+      paymentMode: registrationFee === 0 ? 'free' : paymentMode,
+      paymentStatus: registrationFee === 0 ? 'paid' : (paymentMode === 'online' ? 'pending' : 'unpaid'),
       status: 'pending',
-      isActivated: false
+      isActivated: false,
+      isPaid: registrationFee === 0
     });
 
-    if (paymentMode === 'online') {
+    if (registrationFee > 0 && paymentMode === 'online') {
       const orderData = {
         order_amount: registrationFee,
         order_currency: "INR",
@@ -123,12 +167,14 @@ exports.registerAgent = async (req, res, next) => {
       });
     }
 
-    // Offline mode
+    // Offline or Free mode
     try {
       await sendEmail({
         email: user.email,
-        subject: 'Welcome to Sevainest - Account Pending Approval',
-        message: `Hello ${user.name},\n\nThank you for registering as an agent with Sevainest. Your account is currently under approval. Once activated, you will receive another email with your Agent ID.\n\nRegistration Fee: ₹${registrationFee}\n\nBest regards,\nSevainest Team`,
+        subject: registrationFee === 0 ? 'Welcome to Sevainest - Registration Successful' : 'Welcome to Sevainest - Account Pending Approval',
+        message: registrationFee === 0 
+          ? `Hello ${user.name},\n\nThank you for registering as an agent with Sevainest. Your registration was successful and completely free.\n\nYour account is currently under approval by our admin team. Once activated, you will receive another email with your Agent ID.\n\nBest regards,\nSevainest Team`
+          : `Hello ${user.name},\n\nThank you for registering as an agent with Sevainest. Your account is currently under approval. Once activated, you will receive another email with your Agent ID.\n\nRegistration Fee: ₹${registrationFee}\n\nBest regards,\nSevainest Team`,
       });
     } catch (err) {
       console.error('Email could not be sent');
@@ -136,7 +182,7 @@ exports.registerAgent = async (req, res, next) => {
 
     res.status(201).json({
       success: true,
-      message: 'Registration successful. Your account is under approval.',
+      message: registrationFee === 0 ? 'Registration successful. Free account is under approval.' : 'Registration successful. Your account is under approval.',
       data: { user: { id: user._id, name: user.name, email: user.email }, fee: registrationFee }
     });
   } catch (err) {
@@ -161,7 +207,7 @@ exports.verifyRegistrationPayment = async (req, res, next) => {
     console.log('Cashfree Status Response:', response.data.order_status);
 
     if (response.data.order_status === 'PAID') {
-      const user = await User.findOne({ registrationOrderId: order_id });
+      const user = await User.findOne({ registrationOrderId: order_id }).select('+password');
       if (!user) {
         console.log('User not found for registration ID:', order_id);
         return res.status(404).json({ message: 'User not found' });
@@ -245,14 +291,57 @@ exports.verifyRegistrationPayment = async (req, res, next) => {
 // @access  Private/Admin
 exports.activateAgent = async (req, res, next) => {
   try {
-    const user = await User.findById(req.params.id);
+    const user = await User.findById(req.params.id).select('+password');
     if (!user) return res.status(404).json({ message: 'User not found' });
 
-    user.isActivated = true;
-    user.status = 'active';
-    user.paymentStatus = 'paid'; // Admin manually verified offline payment
-    user.agentId = await generateAgentId();
-    await user.save();
+    if (user.status === 'active' && user.agentId) {
+      return res.status(200).json({ success: true, message: 'Agent is already active', data: user });
+    }
+
+    console.log(`👤 Activating agent: ${user.email} (Current Status: ${user.status})`);
+
+    let activated = false;
+    let attempts = 0;
+
+    while (!activated && attempts < 3) {
+      attempts++;
+      
+      // Only generate ID if they don't have one
+      if (!user.agentId) {
+        user.agentId = await generateAgentId();
+      }
+
+      user.isActivated = true;
+      user.status = 'active';
+      user.paymentStatus = 'paid';
+
+      try {
+        await user.save();
+        activated = true;
+      } catch (saveErr) {
+        console.error(`❌ Activation Attempt ${attempts} failed:`, saveErr.message);
+        
+        if (saveErr.code === 11000) {
+          const field = Object.keys(saveErr.keyPattern || {})[0];
+          if (field === 'agentId') {
+            console.log(`🔄 Retrying with a new ID due to collision on ${user.agentId}...`);
+            user.agentId = undefined; // Force re-generation in next loop
+            continue;
+          }
+          return res.status(400).json({ 
+            message: `Activation failed: Duplicate ${field} detected. This account might already be active.` 
+          });
+        }
+        
+        throw saveErr; // Rethrow other errors
+      }
+    }
+
+    if (!activated) {
+      return res.status(500).json({ message: 'Failed to activate agent after multiple attempts due to ID collisions.' });
+    }
+
+    console.log(`✅ Agent ${user.email} activated successfully with ID ${user.agentId}`);
 
     // Send activation email
     try {
@@ -262,10 +351,39 @@ exports.activateAgent = async (req, res, next) => {
         message: `Hello ${user.name},\n\nCongratulations! Your Sevainest agent account has been activated.\n\nYour Agent ID: ${user.agentId}\n\nYou can now log in and start using our services.\n\nBest regards,\nSevainest Team`,
       });
     } catch (err) {
-      console.error('Activation email could not be sent');
+      console.error('❌ Activation email could not be sent:', err.message);
     }
 
-    res.status(200).json({ success: true, data: user });
+    res.status(200).json({ success: true, message: 'Agent activated successfully', data: user });
+  } catch (err) {
+    console.error('❌ Failed to activate agent:', err);
+    next(err);
+  }
+};
+
+// @desc    Reject Agent (Admin only)
+// @route   PATCH /api/auth/reject/:id
+// @access  Private/Admin
+exports.rejectAgent = async (req, res, next) => {
+  try {
+    const user = await User.findById(req.params.id).select('+password');
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    user.status = 'rejected';
+    await user.save();
+
+    // Send rejection email
+    try {
+      await sendEmail({
+        email: user.email,
+        subject: 'Agent Application Status - Sevainest',
+        message: `Hello ${user.name},\n\nWe regret to inform you that your application for a Sevainest agent account has been declined at this time.\n\nIf you have any questions, please contact our support team.\n\nBest regards,\nSevainest Team`,
+      });
+    } catch (err) {
+      console.error('❌ Rejection email could not be sent:', err.message);
+    }
+
+    res.status(200).json({ success: true, message: 'Agent rejected successfully' });
   } catch (err) {
     next(err);
   }
@@ -371,7 +489,7 @@ exports.forgotPassword = async (req, res, next) => {
   try {
     const { email } = req.body;
     console.log(`🔍 Forgot password request for: ${email}`);
-    const user = await User.findOne({ email: { $regex: new RegExp(`^${email}$`, 'i') } });
+    const user = await User.findOne({ email: { $regex: new RegExp(`^${email}$`, 'i') } }).select('+password');
 
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
@@ -440,7 +558,7 @@ exports.resetPassword = async (req, res, next) => {
 // @access  Private
 exports.sendVerificationCode = async (req, res, next) => {
   try {
-    const user = await User.findById(req.user.id);
+    const user = await User.findById(req.user.id).select('+password');
     if (!user) return res.status(404).json({ message: 'User not found' });
 
     // Generate 6-digit OTP
@@ -480,7 +598,7 @@ exports.sendVerificationCode = async (req, res, next) => {
 exports.verifyEmail = async (req, res, next) => {
   try {
     const { otp } = req.body;
-    const user = await User.findById(req.user.id);
+    const user = await User.findById(req.user.id).select('+password');
 
     if (!user) return res.status(404).json({ message: 'User not found' });
 

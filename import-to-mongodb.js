@@ -34,16 +34,25 @@ async function importData() {
       await db.collection('users').deleteMany({ role: 'agent' });
 
       const hashedPassword = await bcrypt.hash('Agent@123', 10);
-      const agentsToInsert = agentsData.map(agent => ({
-        name: agent.name || 'Unknown Agent',
-        email: agent.email || `agent_${agent.wp_user_id}@test.com`,
-        password: hashedPassword,
-        role: 'agent',
-        walletBalance: 0,
-        status: agent.status === 'approved' ? 'active' : 'pending',
-        isActivated: agent.status === 'approved',
-        wp_user_id: agent.wp_user_id // FIXED: Using wp_user_id for mapping
-      }));
+      const seenEmails = new Set();
+      const agentsToInsert = agentsData
+        .filter(agent => {
+          if (!agent.email) return true;
+          const email = agent.email.toLowerCase();
+          if (seenEmails.has(email)) return false;
+          seenEmails.add(email);
+          return true;
+        })
+        .map(agent => ({
+          name: agent.name || 'Unknown Agent',
+          email: (agent.email || `agent_${agent.wp_user_id}@test.com`).toLowerCase(),
+          password: hashedPassword,
+          role: 'agent',
+          walletBalance: 0,
+          status: agent.status === 'approved' ? 'active' : 'pending',
+          isActivated: agent.status === 'approved',
+          wp_user_id: agent.wp_user_id // FIXED: Using wp_user_id for mapping
+        }));
 
       const result = await db.collection('users').insertMany(agentsToInsert);
       console.log(`✅ Inserted ${result.insertedCount} agents.`);
