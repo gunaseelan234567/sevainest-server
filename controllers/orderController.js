@@ -2,10 +2,10 @@ const Order = require('../models/Order');
 const Product = require('../models/Product');
 const User = require('../models/User');
 const WalletTransaction = require('../models/WalletTransaction');
-const Settings = require('../models/Settings');
 const axios = require('axios');
+const Settings = require('../models/Settings');
 
-// Helper for Cashfree
+// Helper for Cashfree Headers
 const getCashfreeHeaders = (settings) => ({
   'x-client-id': settings.cashfreeAppId || process.env.CASHFREE_APP_ID,
   'x-client-secret': settings.cashfreeSecretKey || process.env.CASHFREE_SECRET_KEY,
@@ -14,83 +14,36 @@ const getCashfreeHeaders = (settings) => ({
 });
 
 const getCashfreeUrl = (settings) => {
-  const env = settings.cashfreeEnvironment || 'sandbox';
-  return env === 'production' ? 'https://api.cashfree.com/pg' : 'https://sandbox.cashfree.com/pg';
+  const appId = settings.cashfreeAppId || process.env.CASHFREE_APP_ID;
+  const secretKey = settings.cashfreeSecretKey || process.env.CASHFREE_SECRET_KEY;
+  if (appId?.includes('prod') || secretKey?.includes('prod')) return 'https://api.cashfree.com/pg';
+  if (appId?.includes('TEST') || secretKey?.includes('test')) return 'https://sandbox.cashfree.com/pg';
+  return (settings.cashfreeEnvironment || 'sandbox') === 'production' ? 'https://api.cashfree.com/pg' : 'https://sandbox.cashfree.com/pg';
 };
 
-// @desc    Get all orders
-// @route   GET /api/orders
-// @access  Private/Admin
-exports.getOrders = async (req, res, next) => {
-  try {
-    const orders = await Order.find()
-      .populate('user', 'name email phone')
-      .populate('product', 'name price imageUrl')
-      .sort('-createdAt');
-
-    res.status(200).json({
-      success: true,
-      data: orders
-    });
-  } catch (err) {
-    next(err);
-  }
-};
-
-// @desc    Get my orders
-// @route   GET /api/orders/my
-// @access  Private
-exports.getMyOrders = async (req, res, next) => {
-  try {
-    const orders = await Order.find({ user: req.user.id })
-      .populate('product', 'name price imageUrl')
-      .sort('-createdAt');
-
-    res.status(200).json({
-      success: true,
-      data: orders
-    });
-  } catch (err) {
-    next(err);
-  }
-};
-
-// @desc    Create order (Wallet payment)
+// @desc    Create new order (Purchase Product via Wallet)
 // @route   POST /api/orders
-// @access  Private
+// @access  Private/Agent
 exports.createOrder = async (req, res, next) => {
   try {
     const { productId, quantity, shippingAddress } = req.body;
 
     const product = await Product.findById(productId);
     if (!product) return res.status(404).json({ message: 'Product not found' });
+    if (product.status !== 'active') return res.status(400).json({ message: 'Product is not available' });
     if (product.stock < quantity) return res.status(400).json({ message: 'Insufficient stock' });
 
     const totalPrice = product.price * quantity;
-    const user = await User.findById(req.user.id).select('+password');
 
+    // Check wallet balance
+    const user = await User.findById(req.user.id);
     if (user.walletBalance < totalPrice) {
       return res.status(400).json({ message: 'Insufficient wallet balance' });
     }
 
-    // 1. Deduct from wallet
-    user.walletBalance -= totalPrice;
-    await user.save();
-
-    // 2. Create Transaction Log
-    await WalletTransaction.create({
-      user: user._id,
-      amount: totalPrice,
-      type: 'debit',
-      category: 'purchase',
-      description: `Purchase: ${product.name} (Qty: ${quantity})`,
-      status: 'success',
-      balanceAfter: user.walletBalance
-    });
-
-    // 3. Create Order
+    // Create order
     const order = await Order.create({
-      user: user._id,
+      user: req.user.id,
       product: productId,
       quantity,
       totalPrice,
@@ -99,42 +52,21 @@ exports.createOrder = async (req, res, next) => {
       paymentStatus: 'paid'
     });
 
-    // 4. Update Stock
-    product.stock -= quantity;
-    await product.save();
+    // Deduct from wallet
+    user.walletBalance -= totalPrice;
+    await user.save();
 
-    res.status(201).json({ success: true, data: order });
-  } catch (err) {
-    next(err);
-  }
-};
-
-// @desc    Create Offline Order (QR payment)
-// @route   POST /api/orders/offline
-// @access  Private
-exports.createOfflineOrder = async (req, res, next) => {
-  try {
-    const { productId, quantity, shippingAddress, transactionId } = req.body;
-
-    const product = await Product.findById(productId);
-    if (!product) return res.status(404).json({ message: 'Product not found' });
-    if (product.stock < quantity) return res.status(400).json({ message: 'Insufficient stock' });
-
-    const totalPrice = product.price * quantity;
-
-    const order = await Order.create({
-      user: req.user.id,
-      product: productId,
-      quantity,
-      totalPrice,
-      shippingAddress,
-      paymentMethod: 'offline',
-      paymentStatus: 'pending',
-      transactionId
+    // Log transaction
+    await WalletTransaction.create({
+      agentId: req.user.id,
+      type: 'debit',
+      amount: totalPrice,
+      reason: `Purchased product: ${product.name} (Qty: ${quantity})`,
+      performedBy: req.user.id,
+      balanceAfter: user.walletBalance
     });
 
-    // We don't deduct stock until admin marks as paid/delivered? 
-    // Or we reserve stock? Let's reserve stock.
+    // Update product stock
     product.stock -= quantity;
     await product.save();
 
@@ -144,20 +76,20 @@ exports.createOfflineOrder = async (req, res, next) => {
   }
 };
 
-// @desc    Initiate Online Order (Cashfree)
+// @desc    Initiate Cashfree direct payment for product
 // @route   POST /api/orders/initiate-online
-// @access  Private
+// @access  Private/Agent
 exports.initiateOnlineOrder = async (req, res, next) => {
   try {
     const { productId, quantity, shippingAddress } = req.body;
     const settings = await Settings.findOne({ key: 'portal' });
-
     const product = await Product.findById(productId);
+
     if (!product) return res.status(404).json({ message: 'Product not found' });
     if (product.stock < quantity) return res.status(400).json({ message: 'Insufficient stock' });
 
     const totalPrice = product.price * quantity;
-    const orderId = `ord_${Date.now()}_${req.user.id.slice(-4)}`;
+    const orderId = `prod_${Date.now()}`;
 
     const orderData = {
       order_amount: totalPrice,
@@ -176,7 +108,7 @@ exports.initiateOnlineOrder = async (req, res, next) => {
       { headers: getCashfreeHeaders(settings) }
     );
 
-    // Create order in pending state
+    // Create a pending order in DB
     await Order.create({
       user: req.user.id,
       product: productId,
@@ -185,18 +117,18 @@ exports.initiateOnlineOrder = async (req, res, next) => {
       shippingAddress,
       paymentMethod: 'online',
       paymentStatus: 'pending',
-      registrationOrderId: orderId
+      transactionId: orderId
     });
 
     res.status(200).json({ success: true, order: response.data });
   } catch (err) {
-    next(err);
+    res.status(400).json({ message: err.response?.data?.message || err.message });
   }
 };
 
-// @desc    Verify Online Order
+// @desc    Verify Cashfree payment for product
 // @route   POST /api/orders/verify-online
-// @access  Private
+// @access  Private/Agent
 exports.verifyOnlineOrder = async (req, res, next) => {
   try {
     const { order_id } = req.body;
@@ -208,43 +140,143 @@ exports.verifyOnlineOrder = async (req, res, next) => {
     );
 
     if (response.data.order_status === 'PAID') {
-      const order = await Order.findOne({ registrationOrderId: order_id });
-      if (!order) return res.status(404).json({ message: 'Order not found' });
+      const order = await Order.findOne({ transactionId: order_id, paymentStatus: 'pending' });
+      if (!order) return res.status(400).json({ message: 'Order not found or already processed' });
 
-      if (order.paymentStatus !== 'paid') {
-        order.paymentStatus = 'paid';
-        order.transactionId = response.data.cf_order_id;
-        await order.save();
+      order.paymentStatus = 'paid';
+      await order.save();
 
-        // Deduct Stock
-        const product = await Product.findById(order.product);
-        product.stock -= order.quantity;
-        await product.save();
-      }
+      // Update stock
+      const product = await Product.findById(order.product);
+      product.stock -= order.quantity;
+      await product.save();
 
-      res.status(200).json({ success: true, message: 'Order paid successfully' });
+      res.status(200).json({ success: true, message: 'Payment verified and order placed' });
     } else {
-      res.status(400).json({ message: 'Payment not successful' });
+      res.status(400).json({ message: `Payment status: ${response.data.order_status}` });
     }
+  } catch (err) {
+    res.status(400).json({ message: err.response?.data?.message || err.message });
+  }
+};
+
+// @desc    Create new order (Offline Payment)
+// @route   POST /api/orders/offline
+// @access  Private/Agent
+exports.createOfflineOrder = async (req, res, next) => {
+  try {
+    const { productId, quantity, shippingAddress, transactionId } = req.body;
+
+    const product = await Product.findById(productId);
+    if (!product) return res.status(404).json({ message: 'Product not found' });
+    if (product.stock < quantity) return res.status(400).json({ message: 'Insufficient stock' });
+
+    const totalPrice = product.price * quantity;
+
+    // Create order with pending payment status
+    const order = await Order.create({
+      user: req.user.id,
+      product: productId,
+      quantity,
+      totalPrice,
+      shippingAddress,
+      paymentMethod: 'offline',
+      paymentStatus: 'pending',
+      transactionId
+    });
+
+    res.status(201).json({ success: true, data: order });
   } catch (err) {
     next(err);
   }
 };
 
-// @desc    Update Order (Admin only)
+// @desc    Get agent orders
+// @route   GET /api/orders/my
+// @access  Private/Agent
+exports.getMyOrders = async (req, res, next) => {
+  try {
+    const orders = await Order.find({ user: req.user.id })
+      .populate('product', 'name price imageUrl')
+      .sort('-createdAt');
+    res.status(200).json({ success: true, count: orders.length, data: orders });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// @desc    Get all orders (Admin)
+// @route   GET /api/orders
+// @access  Private/Admin
+exports.getOrders = async (req, res, next) => {
+  try {
+    const orders = await Order.find()
+      .populate('user', 'name email phone')
+      .populate('product', 'name price imageUrl')
+      .sort('-createdAt');
+    res.status(200).json({ success: true, count: orders.length, data: orders });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// @desc    Update order status (Admin)
 // @route   PATCH /api/orders/:id
 // @access  Private/Admin
-exports.updateOrder = async (req, res, next) => {
+exports.updateOrderStatus = async (req, res, next) => {
   try {
-    const order = await Order.findById(req.params.id);
-    if (!order) return res.status(404).json({ message: 'Order not found' });
+    const { status, paymentStatus, trackingNumber } = req.body;
+    let order = await Order.findById(req.params.id);
 
-    const updatedOrder = await Order.findByIdAndUpdate(req.params.id, req.body, {
-      new: true,
-      runValidators: true
-    });
+    if (!order) {
+      return res.status(404).json({ message: 'Order not found' });
+    }
 
-    res.status(200).json({ success: true, data: updatedOrder });
+    if (status) order.status = status;
+    if (trackingNumber !== undefined) order.trackingNumber = trackingNumber;
+    if (paymentStatus) {
+      // If payment was pending and now marked paid, update stock for offline orders
+      if (order.paymentStatus === 'pending' && paymentStatus === 'paid') {
+        const product = await Product.findById(order.product);
+        if (product) {
+          product.stock -= order.quantity;
+          await product.save();
+        }
+      }
+      order.paymentStatus = paymentStatus;
+    }
+    
+    await order.save();
+
+    res.status(200).json({ success: true, data: order });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// @desc    Agent: Confirm order receipt (Mark as Delivered)
+// @route   PATCH /api/orders/:id/confirm
+// @access  Private/Agent
+exports.confirmOrderReceipt = async (req, res, next) => {
+  try {
+    const order = await Order.findOne({ _id: req.params.id, user: req.user.id });
+
+    if (!order) {
+      return res.status(404).json({ message: 'Order not found' });
+    }
+
+    if (order.status === 'delivered') {
+      return res.status(400).json({ message: 'Order is already marked as delivered' });
+    }
+
+    if (!['shipped', 'on-the-way', 'packed'].includes(order.status)) {
+      return res.status(400).json({ message: 'Order cannot be confirmed yet' });
+    }
+
+    order.status = 'delivered';
+    await order.save();
+
+    res.status(200).json({ success: true, data: order });
   } catch (err) {
     next(err);
   }

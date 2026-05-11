@@ -1,12 +1,13 @@
 const express = require('express');
 const {
-  getOrders,
-  getMyOrders,
   createOrder,
-  createOfflineOrder,
+  getMyOrders,
+  getOrders,
+  updateOrderStatus,
   initiateOnlineOrder,
   verifyOnlineOrder,
-  updateOrder
+  createOfflineOrder,
+  confirmOrderReceipt
 } = require('../controllers/orderController');
 const { protect, authorize } = require('../middleware/auth');
 
@@ -14,13 +15,13 @@ const router = express.Router();
 
 router.use(protect);
 
-router.get('/', authorize('admin'), getOrders);
-router.get('/my', getMyOrders);
 router.post('/', authorize('agent'), createOrder);
-router.post('/offline', authorize('agent'), createOfflineOrder);
 router.post('/initiate-online', authorize('agent'), initiateOnlineOrder);
 router.post('/verify-online', authorize('agent'), verifyOnlineOrder);
-
-router.patch('/:id', authorize('admin'), updateOrder);
+router.post('/offline', authorize('agent'), createOfflineOrder);
+router.patch('/:id/confirm', authorize('agent'), confirmOrderReceipt);
+router.get('/my', authorize('agent'), getMyOrders);
+router.get('/', authorize('admin'), getOrders);
+router.patch('/:id', authorize('admin'), updateOrderStatus);
 
 module.exports = router;

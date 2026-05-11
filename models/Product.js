@@ -6,9 +6,9 @@ const productSchema = new mongoose.Schema({
     required: [true, 'Please add a product name'],
     trim: true,
   },
-  category: {
+  description: {
     type: String,
-    required: [true, 'Please add a category'],
+    required: [true, 'Please add a description'],
   },
   price: {
     type: Number,
@@ -19,22 +19,17 @@ const productSchema = new mongoose.Schema({
     required: [true, 'Please add stock quantity'],
     default: 0,
   },
-  description: {
+  imageUrl: {
     type: String,
-    required: [true, 'Please add a description'],
+  },
+  category: {
+    type: String,
+    required: [true, 'Please add a category'],
   },
   status: {
     type: String,
     enum: ['active', 'inactive'],
     default: 'active',
-  },
-  imageUrl: {
-    type: String,
-  },
-  createdBy: {
-    type: mongoose.Schema.ObjectId,
-    ref: 'User',
-    required: true,
   },
 }, {
   timestamps: true,

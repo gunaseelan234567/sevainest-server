@@ -10,14 +10,14 @@ const storage = multer.diskStorage({
     // Choose destination based on fieldname
     if (file.fieldname === 'image') {
       dest = 'uploads/services';
+    } else if (file.fieldname === 'productImage') {
+      dest = 'uploads/products';
     } else if (file.fieldname === 'proofImage') {
       dest = 'uploads/proofs';
     } else if (file.fieldname === 'appFile' || file.fieldname === 'appFiles') {
       dest = 'uploads/applications';
     } else if (file.fieldname === 'manualPaymentQR') {
       dest = 'uploads/settings';
-    } else if (file.fieldname === 'productImage') {
-      dest = 'uploads/products';
     }
 
     // Make sure path exists

@@ -162,8 +162,7 @@ app.use((err, req, res, next) => {
 
   // Mongoose duplicate key
   if (err.code === 11000) {
-    const field = Object.keys(err.keyPattern || {})[0] || 'field';
-    error.message = `Duplicate ${field} value entered. Please check your data.`;
+    error.message = 'Duplicate field value entered';
     res.status(400);
   }
 

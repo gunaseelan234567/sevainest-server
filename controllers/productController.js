@@ -1,56 +1,57 @@
 const Product = require('../models/Product');
-const path = require('path');
-const fs = require('fs');
 
-// @desc    Get all products (Agent/Public)
+// @desc    Get all products
 // @route   GET /api/products
 // @access  Private
 exports.getProducts = async (req, res, next) => {
   try {
-    const products = await Product.find({ status: 'active' }).sort('-createdAt');
-    res.status(200).json({
-      success: true,
-      count: products.length,
-      data: products
-    });
+    const products = await Product.find({ status: 'active' });
+    res.status(200).json({ success: true, count: products.length, data: products });
   } catch (err) {
     next(err);
   }
 };
 
-// @desc    Get all products for admin
+// @desc    Get all products for admin (including inactive)
 // @route   GET /api/products/admin
 // @access  Private/Admin
 exports.getAdminProducts = async (req, res, next) => {
   try {
-    const products = await Product.find().sort('-createdAt');
-    res.status(200).json({
-      success: true,
-      count: products.length,
-      data: products
-    });
+    const products = await Product.find();
+    res.status(200).json({ success: true, count: products.length, data: products });
   } catch (err) {
     next(err);
   }
 };
 
-// @desc    Create product
+// @desc    Get single product
+// @route   GET /api/products/:id
+// @access  Private
+exports.getProduct = async (req, res, next) => {
+  try {
+    const product = await Product.findById(req.params.id);
+    if (!product) {
+      return res.status(404).json({ message: 'Product not found' });
+    }
+    res.status(200).json({ success: true, data: product });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// @desc    Create new product
 // @route   POST /api/products
 // @access  Private/Admin
 exports.createProduct = async (req, res, next) => {
   try {
-    req.body.createdBy = req.user.id;
+    const productData = req.body;
     
     if (req.file) {
-      req.body.imageUrl = `/uploads/products/${req.file.filename}`;
+      productData.imageUrl = `/uploads/products/${req.file.filename}`;
     }
 
-    const product = await Product.create(req.body);
-
-    res.status(201).json({
-      success: true,
-      data: product
-    });
+    const product = await Product.create(productData);
+    res.status(201).json({ success: true, data: product });
   } catch (err) {
     next(err);
   }
@@ -62,29 +63,21 @@ exports.createProduct = async (req, res, next) => {
 exports.updateProduct = async (req, res, next) => {
   try {
     let product = await Product.findById(req.params.id);
-
     if (!product) {
       return res.status(404).json({ message: 'Product not found' });
     }
 
+    const productData = req.body;
     if (req.file) {
-      // Delete old image if exists
-      if (product.imageUrl) {
-        const oldPath = path.join(__dirname, '..', product.imageUrl);
-        if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
-      }
-      req.body.imageUrl = `/uploads/products/${req.file.filename}`;
+      productData.imageUrl = `/uploads/products/${req.file.filename}`;
     }
 
-    product = await Product.findByIdAndUpdate(req.params.id, req.body, {
+    product = await Product.findByIdAndUpdate(req.params.id, productData, {
       new: true,
-      runValidators: true
+      runValidators: true,
     });
 
-    res.status(200).json({
-      success: true,
-      data: product
-    });
+    res.status(200).json({ success: true, data: product });
   } catch (err) {
     next(err);
   }
@@ -96,22 +89,12 @@ exports.updateProduct = async (req, res, next) => {
 exports.deleteProduct = async (req, res, next) => {
   try {
     const product = await Product.findById(req.params.id);
-
     if (!product) {
       return res.status(404).json({ message: 'Product not found' });
     }
 
-    if (product.imageUrl) {
-      const imgPath = path.join(__dirname, '..', product.imageUrl);
-      if (fs.existsSync(imgPath)) fs.unlinkSync(imgPath);
-    }
-
     await product.deleteOne();
-
-    res.status(200).json({
-      success: true,
-      data: {}
-    });
+    res.status(200).json({ success: true, data: {} });
   } catch (err) {
     next(err);
   }

@@ -49,7 +49,7 @@ const userSchema = new mongoose.Schema({
   },
   paymentMode: {
     type: String,
-    enum: ['online', 'offline', 'free', 'none'],
+    enum: ['online', 'offline', 'none'],
     default: 'none',
   },
   paymentStatus: {
@@ -61,10 +61,6 @@ const userSchema = new mongoose.Schema({
     type: String,
     unique: true,
     sparse: true,
-  },
-  isPaid: {
-    type: Boolean,
-    default: false,
   },
   registrationOrderId: {
     type: String,

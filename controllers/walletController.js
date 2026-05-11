@@ -376,33 +376,3 @@ exports.updateFundRequestStatus = async (req, res) => {
     next(err);
   }
 };
-
-// @desc    Admin: Get all wallet transactions (with optional date filter)
-// @route   GET /api/wallet/admin/transactions
-// @access  Private/Admin
-exports.getAdminTransactions = async (req, res, next) => {
-  try {
-    const { date } = req.query;
-    let query = {};
-
-    if (date) {
-      const start = new Date(date);
-      start.setHours(0, 0, 0, 0);
-      const end = new Date(date);
-      end.setHours(23, 59, 59, 999);
-      query.createdAt = { $gte: start, $lte: end };
-    }
-
-    const transactions = await WalletTransaction.find(query)
-      .populate('agentId', 'name email')
-      .sort('-createdAt');
-
-    res.status(200).json({
-      success: true,
-      count: transactions.length,
-      data: transactions
-    });
-  } catch (err) {
-    next(err);
-  }
-};

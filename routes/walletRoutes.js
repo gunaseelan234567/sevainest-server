@@ -7,8 +7,7 @@ const {
   createOnlineOrder,
   verifyCashfreePayment,
   adminAddFunds,
-  adminDeductFunds,
-  getAdminTransactions
+  adminDeductFunds
 } = require('../controllers/walletController');
 const { protect, authorize } = require('../middleware/auth');
 
@@ -21,7 +20,6 @@ router.use(protect);
 router.get('/history', getWalletHistory);
 router.post('/admin/add-funds', authorize('admin'), adminAddFunds);
 router.post('/admin/deduct-funds', authorize('admin'), adminDeductFunds);
-router.get('/admin/transactions', authorize('admin'), getAdminTransactions);
 
 // Fund Request Routes
 router.post('/online-order', authorize('agent'), createOnlineOrder);
