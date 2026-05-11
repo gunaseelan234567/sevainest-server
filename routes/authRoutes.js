@@ -8,6 +8,7 @@ const {
   registerAgent,
   verifyRegistrationPayment,
   activateAgent,
+  rejectAgent,
   forgotPassword,
   resetPassword,
   bulkEmail,
@@ -28,6 +29,7 @@ router.post('/send-verification', protect, sendVerificationCode);
 router.post('/verify-email', protect, verifyEmail);
 router.get('/users', protect, authorize('admin'), getUsers);
 router.patch('/activate/:id', protect, authorize('admin'), activateAgent);
+router.patch('/reject/:id', protect, authorize('admin'), rejectAgent);
 router.post('/forgotpassword', forgotPassword);
 router.post('/resetpassword', resetPassword);
 router.post('/bulk-email', protect, authorize('admin'), bulkEmail);

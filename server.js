@@ -138,6 +138,7 @@ app.use('/api/tickets', require('./routes/ticketRoutes'));
 app.use('/api/settings', require('./routes/settingsRoutes'));
 app.use('/api/products', require('./routes/productRoutes'));
 app.use('/api/orders', require('./routes/orderRoutes'));
+app.use('/api/pdfs', require('./routes/pdfRoutes'));
 
 // 404 handler
 app.use((req, res, next) => {
@@ -162,7 +163,8 @@ app.use((err, req, res, next) => {
 
   // Mongoose duplicate key
   if (err.code === 11000) {
-    error.message = 'Duplicate field value entered';
+    const field = Object.keys(err.keyPattern || {})[0] || 'field';
+    error.message = `Duplicate ${field} value entered. Please check your data.`;
     res.status(400);
   }
 
