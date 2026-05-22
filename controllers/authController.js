@@ -3,6 +3,23 @@ const Settings = require('../models/Settings');
 const jwt = require('jsonwebtoken');
 const axios = require('axios');
 const sendEmail = require('../utils/sendEmail');
+const speakeasy = require('speakeasy');
+const QRCode = require('qrcode');
+const crypto = require('crypto');
+
+const generateOtp = () => crypto.randomInt(100000, 1000000).toString();
+const hashOtp = (otp) => crypto
+  .createHash('sha256')
+  .update(`${otp}:${process.env.JWT_SECRET}`)
+  .digest('hex');
+const isOtpMatch = (plainOtp, storedHash) => {
+  if (!plainOtp || !storedHash) return false;
+  const incomingHash = hashOtp(plainOtp);
+  const incoming = Buffer.from(incomingHash);
+  const stored = Buffer.from(storedHash);
+  return incoming.length === stored.length && crypto.timingSafeEqual(incoming, stored);
+};
+const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 // Helper for Cashfree Headers
 const getCashfreeHeaders = (settings) => ({
@@ -402,7 +419,7 @@ exports.login = async (req, res, next) => {
     }
 
     // Check for user
-    const user = await User.findOne({ email: { $regex: new RegExp(`^${email}$`, 'i') } }).select('+password');
+    const user = await User.findOne({ email: { $regex: new RegExp(`^${escapeRegex(email)}$`, 'i') } }).select('+password');
 
     if (!user) {
       return res.status(401).json({ message: 'Invalid credentials' });
@@ -421,6 +438,14 @@ exports.login = async (req, res, next) => {
         message: 'Account not yet activated. Please contact admin or complete payment.',
         status: user.status,
         paymentStatus: user.paymentStatus
+      });
+    }
+
+    if (user.isTwoFactorEnabled) {
+      return res.status(200).json({
+        success: true,
+        requires2FA: true,
+        userId: user._id
       });
     }
 
@@ -496,10 +521,10 @@ exports.forgotPassword = async (req, res, next) => {
     }
 
     // Generate 6-digit OTP
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otp = generateOtp();
     
     // Save to user
-    user.resetPasswordOTP = otp;
+    user.resetPasswordOTP = hashOtp(otp);
     user.resetPasswordExpire = Date.now() + 10 * 60 * 1000; // 10 minutes
     await user.save();
 
@@ -528,16 +553,15 @@ exports.forgotPassword = async (req, res, next) => {
 exports.resetPassword = async (req, res, next) => {
   try {
     const { email, otp, password } = req.body;
-    console.log(`🔑 Attempting password reset for: ${email} with OTP: ${otp}`);
+    console.log(`Password reset attempt for: ${email}`);
 
     const user = await User.findOne({
-      email: { $regex: new RegExp('^' + email + '$', 'i') },
-      resetPasswordOTP: otp,
+      email: { $regex: new RegExp(`^${escapeRegex(email)}$`, 'i') },
       resetPasswordExpire: { $gt: Date.now() }
     });
 
-    if (!user) {
-      console.log(`❌ Password reset failed: User not found or OTP mismatch for ${email}`);
+    if (!user || !isOtpMatch(otp, user.resetPasswordOTP)) {
+      console.log(`Password reset failed for ${email}`);
       return res.status(400).json({ message: 'Invalid or expired OTP' });
     }
 
@@ -562,9 +586,9 @@ exports.sendVerificationCode = async (req, res, next) => {
     if (!user) return res.status(404).json({ message: 'User not found' });
 
     // Generate 6-digit OTP
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    console.log(`🎲 Generated OTP: ${otp} for user: ${user.email}`);
-    user.emailVerificationOTP = otp;
+    const otp = generateOtp();
+    console.log(`Generated email verification OTP for user: ${user.email}`);
+    user.emailVerificationOTP = hashOtp(otp);
     user.emailVerificationOTPExpire = Date.now() + 10 * 60 * 1000; // 10 minutes
     
     console.log(`💾 Saving user with OTP...`);
@@ -573,7 +597,7 @@ exports.sendVerificationCode = async (req, res, next) => {
 
     // Send email
     try {
-      console.log(`🔑 Verification OTP for ${user.email}: ${otp}`);
+      console.log(`Sending verification OTP to ${user.email}`);
       await sendEmail({
         email: user.email,
         subject: 'Verify Your Sevainest Account',
@@ -602,9 +626,9 @@ exports.verifyEmail = async (req, res, next) => {
 
     if (!user) return res.status(404).json({ message: 'User not found' });
 
-    if (user.emailVerificationOTP !== otp || user.emailVerificationOTPExpire < Date.now()) {
+    if (!user.emailVerificationOTP || user.emailVerificationOTPExpire < Date.now() || !isOtpMatch(otp, user.emailVerificationOTP)) {
       // Allow '000000' as a bypass in development mode
-      if (process.env.NODE_ENV === 'development' && otp === '000000') {
+      if (false) {
         console.log(`⚠️ Development Bypass used for ${user.email}`);
       } else {
         return res.status(400).json({ message: 'Invalid or expired verification code' });
@@ -663,6 +687,144 @@ exports.bulkEmail = async (req, res, next) => {
     res.status(200).json({
       success: true,
       message: `Emails sent successfully to ${users.length} agents`
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// @desc    Setup 2FA
+// @route   POST /api/auth/setup-2fa
+// @access  Private
+exports.setup2FA = async (req, res, next) => {
+  try {
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    const secret = speakeasy.generateSecret({
+      name: `Sevainest (${user.email})`
+    });
+
+    user.twoFactorSecret = secret.base32;
+    await user.save();
+
+    const dataURL = await QRCode.toDataURL(secret.otpauth_url);
+
+    res.status(200).json({
+      success: true,
+      secret: secret.base32,
+      qrCode: dataURL
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// @desc    Verify and Enable 2FA
+// @route   POST /api/auth/verify-2fa
+// @access  Private
+exports.verify2FA = async (req, res, next) => {
+  try {
+    const { token } = req.body;
+    const user = await User.findById(req.user.id);
+
+    if (!user || !user.twoFactorSecret) {
+      return res.status(400).json({ message: '2FA setup not initialized' });
+    }
+
+    const verified = speakeasy.totp.verify({
+      secret: user.twoFactorSecret,
+      encoding: 'base32',
+      token
+    });
+
+    if (verified) {
+      user.isTwoFactorEnabled = true;
+      await user.save();
+      return res.status(200).json({ success: true, message: '2FA enabled successfully' });
+    } else {
+      return res.status(400).json({ message: 'Invalid 2FA token' });
+    }
+  } catch (err) {
+    next(err);
+  }
+};
+
+// @desc    Disable 2FA
+// @route   POST /api/auth/disable-2fa
+// @access  Private
+exports.disable2FA = async (req, res, next) => {
+  try {
+    const { token } = req.body;
+    const user = await User.findById(req.user.id);
+
+    if (!user.isTwoFactorEnabled) {
+       return res.status(400).json({ message: '2FA is already disabled' });
+    }
+
+    const verified = speakeasy.totp.verify({
+      secret: user.twoFactorSecret,
+      encoding: 'base32',
+      token
+    });
+
+    if (verified) {
+      user.isTwoFactorEnabled = false;
+      user.twoFactorSecret = undefined;
+      await user.save();
+      return res.status(200).json({ success: true, message: '2FA disabled successfully' });
+    } else {
+      return res.status(400).json({ message: 'Invalid 2FA token' });
+    }
+  } catch (err) {
+    next(err);
+  }
+};
+
+// @desc    Login with 2FA
+// @route   POST /api/auth/login-2fa
+// @access  Public
+exports.login2FA = async (req, res, next) => {
+  try {
+    const { userId, token } = req.body;
+    if (!userId || !token) return res.status(400).json({ message: 'Please provide user ID and token' });
+
+    const user = await User.findById(userId);
+    if (!user || !user.isTwoFactorEnabled) {
+      return res.status(400).json({ message: 'Invalid request' });
+    }
+
+    const verified = speakeasy.totp.verify({
+      secret: user.twoFactorSecret,
+      encoding: 'base32',
+      token
+    });
+
+    if (!verified) {
+      return res.status(401).json({ message: 'Invalid 2FA token' });
+    }
+
+    sendTokenResponse(user, 200, res);
+  } catch (err) {
+    next(err);
+  }
+};
+
+// @desc    Delete user
+// @route   DELETE /api/auth/user/:id
+// @access  Private/Admin
+exports.deleteUser = async (req, res, next) => {
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    await user.deleteOne();
+
+    res.status(200).json({
+      success: true,
+      message: 'User deleted successfully'
     });
   } catch (err) {
     next(err);

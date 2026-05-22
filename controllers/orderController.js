@@ -4,6 +4,7 @@ const User = require('../models/User');
 const WalletTransaction = require('../models/WalletTransaction');
 const Settings = require('../models/Settings');
 const axios = require('axios');
+const mongoose = require('mongoose');
 
 // Helper for Cashfree
 const getCashfreeHeaders = (settings) => ({
@@ -59,53 +60,72 @@ exports.getMyOrders = async (req, res, next) => {
 // @route   POST /api/orders
 // @access  Private
 exports.createOrder = async (req, res, next) => {
+  const session = await mongoose.startSession();
+
   try {
-    const { productId, quantity, shippingAddress } = req.body;
+    const { productId, shippingAddress } = req.body;
+    const quantity = Number(req.body.quantity);
+
+    if (!Number.isInteger(quantity) || quantity < 1) {
+      return res.status(400).json({ message: 'Quantity must be at least 1' });
+    }
 
     const product = await Product.findById(productId);
     if (!product) return res.status(404).json({ message: 'Product not found' });
     if (product.stock < quantity) return res.status(400).json({ message: 'Insufficient stock' });
 
     const totalPrice = product.price * quantity;
-    const user = await User.findById(req.user.id).select('+password');
+    let order;
 
-    if (user.walletBalance < totalPrice) {
-      return res.status(400).json({ message: 'Insufficient wallet balance' });
-    }
+    await session.withTransaction(async () => {
+      const updatedProduct = await Product.findOneAndUpdate(
+        { _id: productId, stock: { $gte: quantity } },
+        { $inc: { stock: -quantity } },
+        { new: true, session }
+      );
 
-    // 1. Deduct from wallet
-    user.walletBalance -= totalPrice;
-    await user.save();
+      if (!updatedProduct) {
+        throw Object.assign(new Error('Insufficient stock'), { statusCode: 400 });
+      }
 
-    // 2. Create Transaction Log
-    await WalletTransaction.create({
-      user: user._id,
-      amount: totalPrice,
-      type: 'debit',
-      category: 'purchase',
-      description: `Purchase: ${product.name} (Qty: ${quantity})`,
-      status: 'success',
-      balanceAfter: user.walletBalance
+      const user = await User.findOneAndUpdate(
+        { _id: req.user.id, walletBalance: { $gte: totalPrice } },
+        { $inc: { walletBalance: -totalPrice } },
+        { new: true, session }
+      );
+
+      if (!user) {
+        throw Object.assign(new Error('Insufficient wallet balance'), { statusCode: 400 });
+      }
+
+      await WalletTransaction.create([{
+        agentId: user._id,
+        type: 'debit',
+        amount: totalPrice,
+        reason: `Product purchase: ${product.name} (Qty: ${quantity})`,
+        performedBy: user._id,
+        balanceAfter: user.walletBalance
+      }], { session });
+
+      [order] = await Order.create([{
+        user: user._id,
+        product: productId,
+        quantity,
+        totalPrice,
+        shippingAddress,
+        paymentMethod: 'wallet',
+        paymentStatus: 'paid'
+      }], { session });
     });
-
-    // 3. Create Order
-    const order = await Order.create({
-      user: user._id,
-      product: productId,
-      quantity,
-      totalPrice,
-      shippingAddress,
-      paymentMethod: 'wallet',
-      paymentStatus: 'paid'
-    });
-
-    // 4. Update Stock
-    product.stock -= quantity;
-    await product.save();
 
     res.status(201).json({ success: true, data: order });
   } catch (err) {
+    if (err.statusCode) {
+      return res.status(err.statusCode).json({ message: err.message });
+    }
     next(err);
+  } finally {
+    session.endSession();
   }
 };
 
@@ -114,11 +134,23 @@ exports.createOrder = async (req, res, next) => {
 // @access  Private
 exports.createOfflineOrder = async (req, res, next) => {
   try {
-    const { productId, quantity, shippingAddress, transactionId } = req.body;
+    const { productId, shippingAddress, transactionId } = req.body;
+    const quantity = Number(req.body.quantity);
+
+    if (!Number.isInteger(quantity) || quantity < 1) {
+      return res.status(400).json({ message: 'Quantity must be at least 1' });
+    }
 
     const product = await Product.findById(productId);
     if (!product) return res.status(404).json({ message: 'Product not found' });
-    if (product.stock < quantity) return res.status(400).json({ message: 'Insufficient stock' });
+    
+    const updatedProduct = await Product.findOneAndUpdate(
+      { _id: productId, stock: { $gte: quantity } },
+      { $inc: { stock: -quantity } },
+      { new: true }
+    );
+
+    if (!updatedProduct) return res.status(400).json({ message: 'Insufficient stock' });
 
     const totalPrice = product.price * quantity;
 
@@ -133,11 +165,6 @@ exports.createOfflineOrder = async (req, res, next) => {
       transactionId
     });
 
-    // We don't deduct stock until admin marks as paid/delivered? 
-    // Or we reserve stock? Let's reserve stock.
-    product.stock -= quantity;
-    await product.save();
-
     res.status(201).json({ success: true, data: order });
   } catch (err) {
     next(err);
@@ -149,7 +176,13 @@ exports.createOfflineOrder = async (req, res, next) => {
 // @access  Private
 exports.initiateOnlineOrder = async (req, res, next) => {
   try {
-    const { productId, quantity, shippingAddress } = req.body;
+    const { productId, shippingAddress } = req.body;
+    const quantity = Number(req.body.quantity);
+
+    if (!Number.isInteger(quantity) || quantity < 1) {
+      return res.status(400).json({ message: 'Quantity must be at least 1' });
+    }
+
     const settings = await Settings.findOne({ key: 'portal' });
 
     const product = await Product.findById(productId);
@@ -198,6 +231,8 @@ exports.initiateOnlineOrder = async (req, res, next) => {
 // @route   POST /api/orders/verify-online
 // @access  Private
 exports.verifyOnlineOrder = async (req, res, next) => {
+  const session = await mongoose.startSession();
+
   try {
     const { order_id } = req.body;
     const settings = await Settings.findOne({ key: 'portal' });
@@ -212,14 +247,28 @@ exports.verifyOnlineOrder = async (req, res, next) => {
       if (!order) return res.status(404).json({ message: 'Order not found' });
 
       if (order.paymentStatus !== 'paid') {
-        order.paymentStatus = 'paid';
-        order.transactionId = response.data.cf_order_id;
-        await order.save();
+        await session.withTransaction(async () => {
+          const lockedOrder = await Order.findOne({
+            registrationOrderId: order_id,
+            paymentStatus: { $ne: 'paid' }
+          }).session(session);
 
-        // Deduct Stock
-        const product = await Product.findById(order.product);
-        product.stock -= order.quantity;
-        await product.save();
+          if (!lockedOrder) return;
+
+          const product = await Product.findOneAndUpdate(
+            { _id: lockedOrder.product, stock: { $gte: lockedOrder.quantity } },
+            { $inc: { stock: -lockedOrder.quantity } },
+            { new: true, session }
+          );
+
+          if (!product) {
+            throw Object.assign(new Error('Insufficient stock to complete paid order'), { statusCode: 400 });
+          }
+
+          lockedOrder.paymentStatus = 'paid';
+          lockedOrder.transactionId = response.data.cf_order_id;
+          await lockedOrder.save({ session });
+        });
       }
 
       res.status(200).json({ success: true, message: 'Order paid successfully' });
@@ -227,7 +276,12 @@ exports.verifyOnlineOrder = async (req, res, next) => {
       res.status(400).json({ message: 'Payment not successful' });
     }
   } catch (err) {
+    if (err.statusCode) {
+      return res.status(err.statusCode).json({ message: err.message });
+    }
     next(err);
+  } finally {
+    session.endSession();
   }
 };
 

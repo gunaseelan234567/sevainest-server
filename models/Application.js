@@ -47,6 +47,13 @@ const applicationSchema = new mongoose.Schema({
     fileName: String,
     fileUrl: String,
   },
+  refundedAt: {
+    type: Date,
+  },
+  refundTransactionId: {
+    type: mongoose.Schema.ObjectId,
+    ref: 'WalletTransaction',
+  },
 }, {
   timestamps: true,
 });

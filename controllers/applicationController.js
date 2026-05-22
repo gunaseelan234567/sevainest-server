@@ -3,11 +3,17 @@ const Service = require('../models/Service');
 const User = require('../models/User');
 const WalletTransaction = require('../models/WalletTransaction');
 const sendEmail = require('../utils/sendEmail');
+const mongoose = require('mongoose');
 
 // @desc    Submit new application
 // @route   POST /api/applications
 // @access  Private/Agent
 exports.submitApplication = async (req, res, next) => {
+  const session = await mongoose.startSession();
+  let application;
+  let user;
+  let service;
+
   try {
     let { serviceId, formData } = req.body;
 
@@ -24,38 +30,38 @@ exports.submitApplication = async (req, res, next) => {
     })) : [];
 
     // Get service details
-    const service = await Service.findById(serviceId);
+    service = await Service.findById(serviceId);
     if (!service) {
       return res.status(404).json({ message: 'Service not found' });
     }
 
-    // Check wallet balance
-    const user = await User.findById(req.user.id);
-    if (user.walletBalance < service.chargeAmount) {
-      return res.status(400).json({ message: 'Insufficient wallet balance' });
-    }
+    await session.withTransaction(async () => {
+      user = await User.findOneAndUpdate(
+        { _id: req.user.id, walletBalance: { $gte: service.chargeAmount } },
+        { $inc: { walletBalance: -service.chargeAmount } },
+        { new: true, session }
+      );
 
-    // Create application
-    const application = await Application.create({
-      serviceId,
-      agentId: req.user.id,
-      formData,
-      uploadedFiles,
-      chargeDeducted: service.chargeAmount
-    });
+      if (!user) {
+        throw Object.assign(new Error('Insufficient wallet balance'), { statusCode: 400 });
+      }
 
-    // Deduct from wallet
-    user.walletBalance -= service.chargeAmount;
-    await user.save();
+      [application] = await Application.create([{
+        serviceId,
+        agentId: req.user.id,
+        formData,
+        uploadedFiles,
+        chargeDeducted: service.chargeAmount
+      }], { session });
 
-    // Log transaction
-    await WalletTransaction.create({
-      agentId: req.user.id,
-      type: 'debit',
-      amount: service.chargeAmount,
-      reason: `Application submitted for ${service.title}`,
-      performedBy: req.user.id,
-      balanceAfter: user.walletBalance
+      await WalletTransaction.create([{
+        agentId: req.user.id,
+        type: 'debit',
+        amount: service.chargeAmount,
+        reason: `Application submitted for ${service.title}`,
+        performedBy: req.user.id,
+        balanceAfter: user.walletBalance
+      }], { session });
     });
 
     // Notify agent via email
@@ -72,7 +78,12 @@ exports.submitApplication = async (req, res, next) => {
 
     res.status(201).json({ success: true, data: application });
   } catch (err) {
+    if (err.statusCode) {
+      return res.status(err.statusCode).json({ message: err.message });
+    }
     next(err);
+  } finally {
+    session.endSession();
   }
 };
 
@@ -109,46 +120,55 @@ exports.getApplications = async (req, res, next) => {
 // @route   PATCH /api/applications/:id
 // @access  Private/Admin
 exports.updateApplicationStatus = async (req, res, next) => {
+  const session = await mongoose.startSession();
+  let application;
+
   try {
     const { status, adminRemark } = req.body;
     
-    let application = await Application.findById(req.params.id);
+    application = await Application.findById(req.params.id);
 
     if (!application) {
       return res.status(404).json({ message: 'Application not found' });
     }
 
-    application.status = status;
-    application.adminRemark = adminRemark || application.adminRemark;
+    await session.withTransaction(async () => {
+      application = await Application.findById(req.params.id).session(session);
 
-    // Handle Approved Document Upload
-    if (req.file && status === 'approved') {
-      application.approvedDoc = {
-        fileName: req.file.originalname,
-        fileUrl: `/uploads/others/${req.file.filename}`
-      };
-    }
+      application.status = status;
+      application.adminRemark = adminRemark || application.adminRemark;
 
-    // If rejected, refund the chargeDeducted to the agent's wallet
-    if (status === 'rejected') {
-      const agent = await User.findById(application.agentId);
-      if (agent) {
-        agent.walletBalance += application.chargeDeducted;
-        await agent.save();
-
-        // Log refund transaction
-        await WalletTransaction.create({
-          agentId: agent._id,
-          type: 'credit',
-          amount: application.chargeDeducted,
-          reason: `Refund for rejected application ${application.applicationId}`,
-          performedBy: req.user.id,
-          balanceAfter: agent.walletBalance
-        });
+      if (req.file && status === 'approved') {
+        application.approvedDoc = {
+          fileName: req.file.originalname,
+          fileUrl: `/uploads/others/${req.file.filename}`
+        };
       }
-    }
 
-    await application.save();
+      if (status === 'rejected' && !application.refundedAt) {
+        const agent = await User.findByIdAndUpdate(
+          application.agentId,
+          { $inc: { walletBalance: application.chargeDeducted } },
+          { new: true, session }
+        );
+
+        if (agent) {
+          const [refund] = await WalletTransaction.create([{
+            agentId: agent._id,
+            type: 'credit',
+            amount: application.chargeDeducted,
+            reason: `Refund for rejected application ${application.applicationId}`,
+            performedBy: req.user.id,
+            balanceAfter: agent.walletBalance
+          }], { session });
+
+          application.refundedAt = new Date();
+          application.refundTransactionId = refund._id;
+        }
+      }
+
+      await application.save({ session });
+    });
 
     // Notify agent via email
     try {
@@ -171,6 +191,8 @@ exports.updateApplicationStatus = async (req, res, next) => {
     res.status(200).json({ success: true, data: application });
   } catch (err) {
     next(err);
+  } finally {
+    session.endSession();
   }
 };
 

@@ -85,6 +85,13 @@ const userSchema = new mongoose.Schema({
   emailVerificationOTPExpire: {
     type: Date,
   },
+  isTwoFactorEnabled: {
+    type: Boolean,
+    default: false,
+  },
+  twoFactorSecret: {
+    type: String,
+  },
 }, {
   timestamps: true,
 });
