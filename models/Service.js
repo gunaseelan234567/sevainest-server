@@ -5,13 +5,18 @@ const fieldSchema = new mongoose.Schema({
   name: { type: String, required: true },
   type: {
     type: String,
-    enum: ['text', 'textarea', 'number', 'date', 'dropdown', 'checkbox', 'file'],
+    enum: ['text', 'textarea', 'number', 'date', 'dropdown', 'checkbox', 'file', 'group'],
     required: true,
   },
   required: { type: Boolean, default: false },
   placeholder: { type: String },
   options: [{ type: String }], // For dropdowns
   allowedTypes: [{ type: String }], // For file uploads
+});
+
+// Add subFields to allow recursive nesting for groups
+fieldSchema.add({
+  subFields: [fieldSchema]
 });
 
 const serviceSchema = new mongoose.Schema({
