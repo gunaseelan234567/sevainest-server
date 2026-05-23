@@ -4,6 +4,7 @@ const User = require('../models/User');
 const WalletTransaction = require('../models/WalletTransaction');
 const sendEmail = require('../utils/sendEmail');
 const mongoose = require('mongoose');
+const { uploadToSupabase } = require('../utils/supabaseStorage');
 
 // @desc    Submit new application
 // @route   POST /api/applications
@@ -22,12 +23,12 @@ exports.submitApplication = async (req, res, next) => {
       formData = JSON.parse(formData);
     }
 
-    // Handle Uploaded Files
-    const uploadedFiles = req.files ? req.files.map(file => ({
+    // Handle Uploaded Files (Async)
+    const uploadedFiles = req.files ? await Promise.all(req.files.map(async file => ({
       fieldName: file.fieldname,
       fileName: file.originalname,
-      fileUrl: `/uploads/applications/${file.filename}`
-    })) : [];
+      fileUrl: await uploadToSupabase(file, 'applications')
+    }))) : [];
 
     // Get service details
     service = await Service.findById(serviceId);
@@ -139,9 +140,10 @@ exports.updateApplicationStatus = async (req, res, next) => {
       application.adminRemark = adminRemark || application.adminRemark;
 
       if (req.file && status === 'approved') {
+        const publicUrl = await uploadToSupabase(req.file, 'applications');
         application.approvedDoc = {
           fileName: req.file.originalname,
-          fileUrl: `/uploads/others/${req.file.filename}`
+          fileUrl: publicUrl
         };
       }
 
@@ -221,12 +223,12 @@ exports.resubmitApplication = async (req, res, next) => {
       return res.status(400).json({ message: 'Only returned applications can be resubmitted' });
     }
 
-    // Update files if provided
-    const newFiles = req.files ? req.files.map(file => ({
+    // Update files if provided (Async)
+    const newFiles = req.files ? await Promise.all(req.files.map(async file => ({
       fieldName: file.fieldname,
       fileName: file.originalname,
-      fileUrl: `/uploads/applications/${file.filename}`
-    })) : [];
+      fileUrl: await uploadToSupabase(file, 'applications')
+    }))) : [];
 
     if (newFiles.length > 0) {
       application.uploadedFiles = newFiles;

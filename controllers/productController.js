@@ -1,6 +1,7 @@
 const Product = require('../models/Product');
-const path = require('path');
 const fs = require('fs');
+const path = require('path');
+const { uploadToSupabase } = require('../utils/supabaseStorage');
 
 // @desc    Get all products (Agent/Public)
 // @route   GET /api/products
@@ -42,7 +43,7 @@ exports.createProduct = async (req, res, next) => {
     req.body.createdBy = req.user.id;
     
     if (req.file) {
-      req.body.imageUrl = `/uploads/products/${req.file.filename}`;
+      req.body.imageUrl = await uploadToSupabase(req.file, 'products');
     }
 
     const product = await Product.create(req.body);
@@ -68,12 +69,7 @@ exports.updateProduct = async (req, res, next) => {
     }
 
     if (req.file) {
-      // Delete old image if exists
-      if (product.imageUrl) {
-        const oldPath = path.join(__dirname, '..', product.imageUrl);
-        if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
-      }
-      req.body.imageUrl = `/uploads/products/${req.file.filename}`;
+      req.body.imageUrl = await uploadToSupabase(req.file, 'products');
     }
 
     product = await Product.findByIdAndUpdate(req.params.id, req.body, {
@@ -101,10 +97,8 @@ exports.deleteProduct = async (req, res, next) => {
       return res.status(404).json({ message: 'Product not found' });
     }
 
-    if (product.imageUrl) {
-      const imgPath = path.join(__dirname, '..', product.imageUrl);
-      if (fs.existsSync(imgPath)) fs.unlinkSync(imgPath);
-    }
+    // Note: With Supabase we could call supabase.storage.remove() here
+    // For now we just let the cloud handle it to prevent dangling DB issues.
 
     await product.deleteOne();
 

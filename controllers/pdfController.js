@@ -3,6 +3,7 @@ const User = require('../models/User');
 const WalletTransaction = require('../models/WalletTransaction');
 const fs = require('fs');
 const path = require('path');
+const { uploadToSupabase } = require('../utils/supabaseStorage');
 
 // @desc    Get all PDFs
 // @route   GET /api/pdfs
@@ -28,13 +29,13 @@ exports.createPdf = async (req, res, next) => {
     req.body.createdBy = req.user.id;
 
     if (req.files && req.files.pdfFile) {
-      req.body.fileUrl = `/uploads/pdfs/${req.files.pdfFile[0].filename}`;
+      req.body.fileUrl = await uploadToSupabase(req.files.pdfFile[0], 'pdfs');
     } else {
       return res.status(400).json({ message: 'Please upload a PDF file' });
     }
 
     if (req.files && req.files.pdfImage) {
-      req.body.imageUrl = `/uploads/pdfs/${req.files.pdfImage[0].filename}`;
+      req.body.imageUrl = await uploadToSupabase(req.files.pdfImage[0], 'pdfs');
     }
 
     const pdf = await Pdf.create(req.body);
@@ -60,11 +61,11 @@ exports.updatePdf = async (req, res, next) => {
     }
 
     if (req.files && req.files.pdfFile) {
-      req.body.fileUrl = `/uploads/pdfs/${req.files.pdfFile[0].filename}`;
+      req.body.fileUrl = await uploadToSupabase(req.files.pdfFile[0], 'pdfs');
     }
 
     if (req.files && req.files.pdfImage) {
-      req.body.imageUrl = `/uploads/pdfs/${req.files.pdfImage[0].filename}`;
+      req.body.imageUrl = await uploadToSupabase(req.files.pdfImage[0], 'pdfs');
     }
 
     pdf = await Pdf.findByIdAndUpdate(req.params.id, req.body, {

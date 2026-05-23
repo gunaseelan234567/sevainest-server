@@ -1,5 +1,9 @@
 const express = require('express');
 const dotenv = require('dotenv');
+
+// Load env vars immediately so configurations have access
+dotenv.config();
+
 const cors = require('cors');
 const helmet = require('helmet');
 const cookieParser = require('cookie-parser');
@@ -11,9 +15,7 @@ const hpp = require('hpp');
 const compression = require('compression');
 const rateLimit = require('express-rate-limit');
 const connectDB = require('./config/db');
-
-// Load env vars
-dotenv.config();
+const { testSupabaseConnection } = require('./config/supabase');
 
 // Validate required environment variables
 const requiredEnv = [
@@ -33,6 +35,7 @@ if (missingEnv.length > 0) {
 
 // Connect to database
 connectDB();
+testSupabaseConnection();
 
 const app = express();
 app.set('trust proxy', 1); // Trust Railway's proxy for correct rate limiting IP detection
@@ -116,12 +119,7 @@ app.use('/api/auth/verify-email', authLimiter);
 // Compression
 app.use(compression());
 
-// Static Folders
-const uploadsPath = path.join(__dirname, 'uploads');
-if (!fs.existsSync(uploadsPath)) {
-  fs.mkdirSync(uploadsPath, { recursive: true });
-}
-app.use('/uploads', express.static(uploadsPath));
+// Static Folders removed - App is 100% Supabase Cloud Storage now.
 
 // Basic route
 app.get('/', (req, res) => {

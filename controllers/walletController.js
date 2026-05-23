@@ -5,6 +5,7 @@ const axios = require('axios');
 const sendEmail = require('../utils/sendEmail');
 const Settings = require('../models/Settings');
 const mongoose = require('mongoose');
+const { uploadToSupabase } = require('../utils/supabaseStorage');
 
 const getCashfreeHeaders = (settings = {}) => ({
   'x-client-id': settings.cashfreeAppId || process.env.CASHFREE_APP_ID,
@@ -288,13 +289,16 @@ exports.submitOfflineRequest = async (req, res, next) => {
       return res.status(400).json({ message: 'Please upload a payment proof' });
     }
 
+    // Upload to Supabase and get the public URL
+    const publicUrl = await uploadToSupabase(req.file, 'proofs');
+
     const fundRequest = await FundRequest.create({
       agentId: req.user.id,
       amount,
       method: 'offline',
       status: 'pending',
       transactionId,
-      proofImage: `/uploads/proofs/${req.file.filename}`
+      proofImage: publicUrl
     });
 
     res.status(201).json({ success: true, data: fundRequest });

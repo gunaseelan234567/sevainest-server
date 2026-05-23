@@ -1,4 +1,5 @@
 const Settings = require('../models/Settings');
+const { uploadToSupabase } = require('../utils/supabaseStorage');
 
 // Helper: get or create the singleton
 const getOrCreate = async () => {
@@ -58,7 +59,7 @@ exports.updateSettings = async (req, res, next) => {
     });
 
     if (req.file) {
-      settings.manualPaymentQR = `/uploads/settings/${req.file.filename}`;
+      settings.manualPaymentQR = await uploadToSupabase(req.file, 'settings');
     }
 
     await settings.save();

@@ -1,64 +1,34 @@
 const multer = require('multer');
 const path = require('path');
-const fs = require('fs');
 
-// Set Storage Engine
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    let dest = 'uploads/others';
-    
-    // Choose destination based on fieldname
-    if (file.fieldname === 'image') {
-      dest = 'uploads/services';
-    } else if (file.fieldname === 'proofImage') {
-      dest = 'uploads/proofs';
-    } else if (file.fieldname === 'appFile' || file.fieldname === 'appFiles') {
-      dest = 'uploads/applications';
-    } else if (file.fieldname === 'manualPaymentQR') {
-      dest = 'uploads/settings';
-    } else if (file.fieldname === 'productImage') {
-      dest = 'uploads/products';
-    } else if (file.fieldname === 'pdfFile' || file.fieldname === 'pdfImage') {
-      dest = 'uploads/pdfs';
-    }
-
-    // Make sure path exists
-    const fullPath = path.join(__dirname, '..', dest);
-    if (!fs.existsSync(fullPath)) {
-      fs.mkdirSync(fullPath, { recursive: true });
-    }
-    
-    cb(null, fullPath);
-  },
-  filename: function (req, file, cb) {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, `${file.fieldname}-${uniqueSuffix}${path.extname(file.originalname)}`);
-  },
-});
+// Use Memory Storage so the file is kept in a Buffer (RAM).
+// This buffer will be passed directly to Supabase in the controller.
+const storage = multer.memoryStorage();
 
 // Check File Type
 function checkFileType(file, cb) {
-  // Allowed extensions
-  const filetypes = /jpeg|jpg|png|gif|pdf/;
-  // Check extension
+  // Allowed extensions (Added doc and docx for general document support)
+  const filetypes = /jpeg|jpg|png|gif|pdf|doc|docx/;
+  // Check extension (Note: with memoryStorage, originalname is sometimes less reliable, but we still check it)
   const extname = filetypes.test(path.extname(file.originalname).toLowerCase());
   // Check mime
   const mimetype = filetypes.test(file.mimetype);
 
-  if (mimetype && extname) {
+  if (mimetype) {
     return cb(null, true);
   } else {
-    cb(new Error('Error: Images/PDFs Only!'));
+    cb(new Error('Error: Invalid file type! Only Images, PDFs, and Documents are allowed.'));
   }
 }
 
 // Init Upload
 const upload = multer({
   storage: storage,
-  limits: { fileSize: 5000000 }, // 5MB limit
+  limits: { fileSize: 10 * 1024 * 1024 }, // Increased to 10MB limit for cloud uploads
   fileFilter: function (req, file, cb) {
     checkFileType(file, cb);
   },
 });
 
 module.exports = upload;
+

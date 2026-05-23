@@ -1,6 +1,7 @@
 const Service = require('../models/Service');
 const fs = require('fs');
 const path = require('path');
+const { uploadToSupabase } = require('../utils/supabaseStorage');
 
 // @desc    Get all active services
 // @route   GET /api/services
@@ -36,7 +37,7 @@ exports.createService = async (req, res, next) => {
 
     // Handle Image
     if (req.file) {
-      serviceData.imageUrl = `/uploads/services/${req.file.filename}`;
+      serviceData.imageUrl = await uploadToSupabase(req.file, 'services');
     }
 
     // Multer/FormData might stringify arrays
@@ -65,14 +66,7 @@ exports.updateService = async (req, res, next) => {
 
     // Handle Image
     if (req.file) {
-      // Delete old image if exists
-      if (service.imageUrl) {
-        const oldImagePath = path.join(process.cwd(), service.imageUrl.substring(1));
-        if (fs.existsSync(oldImagePath)) {
-          fs.unlinkSync(oldImagePath);
-        }
-      }
-      updateData.imageUrl = `/uploads/services/${req.file.filename}`;
+      updateData.imageUrl = await uploadToSupabase(req.file, 'services');
     }
 
     // Parse formFields if stringified
@@ -102,13 +96,8 @@ exports.deleteService = async (req, res, next) => {
       return res.status(404).json({ message: 'Service not found' });
     }
 
-    // Delete image if exists
-    if (service.imageUrl) {
-      const imagePath = path.join(process.cwd(), service.imageUrl.substring(1));
-      if (fs.existsSync(imagePath)) {
-        fs.unlinkSync(imagePath);
-      }
-    }
+    // Note: With Supabase we could call supabase.storage.remove() here
+    // For now we just let the cloud handle it to prevent dangling DB issues.
 
     await service.deleteOne();
 
