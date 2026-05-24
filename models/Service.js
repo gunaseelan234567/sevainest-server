@@ -55,4 +55,19 @@ const serviceSchema = new mongoose.Schema({
   timestamps: true,
 });
 
+// Post-delete hooks to log service removals for production audit trails
+serviceSchema.post('deleteOne', { document: true, query: false }, function (doc) {
+  console.warn(`[AUDIT] 🚨 SERVICE DELETED: ID: ${doc._id} | Title: ${doc.title} | Category: ${doc.category} at ${new Date().toISOString()}`);
+});
+
+serviceSchema.post('findOneAndDelete', function (doc) {
+  if (doc) {
+    console.warn(`[AUDIT] 🚨 SERVICE DELETED via query: ID: ${doc._id} | Title: ${doc.title} | Category: ${doc.category} at ${new Date().toISOString()}`);
+  }
+});
+
+serviceSchema.post('deleteMany', function (res) {
+  console.warn(`[AUDIT] 🚨 SERVICE COLLECTION WIPED: deleteMany called at ${new Date().toISOString()}.`);
+});
+
 module.exports = mongoose.model('Service', serviceSchema);

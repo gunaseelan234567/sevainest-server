@@ -16,6 +16,12 @@ dotenv.config();
 const MONGO_URI = process.env.MONGODB_URI;
 
 async function importData() {
+  // Production protection safeguard
+  if (process.env.NODE_ENV === 'production') {
+    console.error('❌ FATAL ERROR: Data importing is BLOCKED in production mode to protect active collections!');
+    process.exit(1);
+  }
+
   try {
     console.log('Connecting to MongoDB Atlas...');
     await mongoose.connect(MONGO_URI);

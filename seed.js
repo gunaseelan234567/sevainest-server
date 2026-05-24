@@ -232,6 +232,12 @@ const buildServices = (adminId) => [
 
 // ─── Main Seed Function ───────────────────────────────────────────────────────
 const seed = async () => {
+  // Production protection safeguard
+  if (process.env.NODE_ENV === 'production') {
+    console.error('❌ FATAL ERROR: Database seeding is BLOCKED in production mode to prevent accidental data deletion!');
+    process.exit(1);
+  }
+
   try {
     await mongoose.connect(process.env.MONGODB_URI);
     console.log('✅ MongoDB connected');

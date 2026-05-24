@@ -111,4 +111,19 @@ userSchema.methods.matchPassword = async function (enteredPassword) {
   return await bcrypt.compare(enteredPassword, this.password);
 };
 
+// Post-delete hooks to log user removals for production audit trails
+userSchema.post('deleteOne', { document: true, query: false }, function (doc) {
+  console.warn(`[AUDIT] 🚨 USER DELETED: ID: ${doc._id} | Email: ${doc.email} | Role: ${doc.role} at ${new Date().toISOString()}`);
+});
+
+userSchema.post('findOneAndDelete', function (doc) {
+  if (doc) {
+    console.warn(`[AUDIT] 🚨 USER DELETED via query: ID: ${doc._id} | Email: ${doc.email} | Role: ${doc.role} at ${new Date().toISOString()}`);
+  }
+});
+
+userSchema.post('deleteMany', function (res) {
+  console.warn(`[AUDIT] 🚨 USER COLLECTION WIPED: deleteMany called at ${new Date().toISOString()}.`);
+});
+
 module.exports = mongoose.model('User', userSchema);
