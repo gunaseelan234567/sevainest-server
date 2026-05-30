@@ -10,6 +10,7 @@ const settingsSchema = new mongoose.Schema({
   // General
   portalName: { type: String, default: 'eSevai Connect' },
   supportEmail: { type: String, default: 'support@esevai.in' },
+  supportPhone: { type: String, default: '9999999999' },
   maintenanceMode: { type: Boolean, default: false },
   newRegistrations: { type: Boolean, default: true },
   // Payment

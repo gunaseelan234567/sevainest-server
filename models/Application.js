@@ -54,8 +54,23 @@ const applicationSchema = new mongoose.Schema({
     type: mongoose.Schema.ObjectId,
     ref: 'WalletTransaction',
   },
+  isDeleted: {
+    type: Boolean,
+    default: false,
+  },
+  deletedAt: {
+    type: Date,
+    default: null,
+  },
 }, {
   timestamps: true,
+});
+
+// Exclude soft-deleted applications in normal queries
+applicationSchema.pre(/^find/, function () {
+  if (this.getFilter().isDeleted === undefined) {
+    this.where({ isDeleted: { $ne: true } });
+  }
 });
 
 // Middleware to generate custom Application ID if not provided

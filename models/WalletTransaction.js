@@ -28,8 +28,23 @@ const walletTransactionSchema = new mongoose.Schema({
     type: Number,
     required: true,
   },
+  isDeleted: {
+    type: Boolean,
+    default: false,
+  },
+  deletedAt: {
+    type: Date,
+    default: null,
+  },
 }, {
   timestamps: true,
+});
+
+// Exclude soft-deleted transactions in normal queries
+walletTransactionSchema.pre(/^find/, function () {
+  if (this.getFilter().isDeleted === undefined) {
+    this.where({ isDeleted: { $ne: true } });
+  }
 });
 
 module.exports = mongoose.model('WalletTransaction', walletTransactionSchema);

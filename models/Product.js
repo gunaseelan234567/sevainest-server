@@ -36,8 +36,23 @@ const productSchema = new mongoose.Schema({
     ref: 'User',
     required: true,
   },
+  isDeleted: {
+    type: Boolean,
+    default: false,
+  },
+  deletedAt: {
+    type: Date,
+    default: null,
+  },
 }, {
   timestamps: true,
+});
+
+// Exclude soft-deleted products in normal queries
+productSchema.pre(/^find/, function () {
+  if (this.getFilter().isDeleted === undefined) {
+    this.where({ isDeleted: { $ne: true } });
+  }
 });
 
 module.exports = mongoose.model('Product', productSchema);

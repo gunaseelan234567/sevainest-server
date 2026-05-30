@@ -1,5 +1,6 @@
 const Pdf = require('../models/Pdf');
 const User = require('../models/User');
+const AuditLog = require('../models/AuditLog');
 const WalletTransaction = require('../models/WalletTransaction');
 const fs = require('fs');
 const path = require('path');
@@ -82,7 +83,7 @@ exports.updatePdf = async (req, res, next) => {
   }
 };
 
-// @desc    Delete a PDF
+// @desc    Delete a PDF (Soft delete with password & logging)
 // @route   DELETE /api/pdfs/:id
 // @access  Private/Admin
 exports.deletePdf = async (req, res, next) => {
@@ -90,14 +91,67 @@ exports.deletePdf = async (req, res, next) => {
     const pdf = await Pdf.findById(req.params.id);
 
     if (!pdf) {
-      return res.status(404).json({ message: 'PDF not found' });
+      return res.status(404).json({ success: false, message: 'PDF not found' });
     }
 
-    await pdf.deleteOne();
+    pdf.isDeleted = true;
+    pdf.deletedAt = new Date();
+    await pdf.save();
+
+    // Create success audit log
+    await AuditLog.create({
+      action: 'ADMIN_DELETE_PDF',
+      targetType: 'pdf',
+      targetId: pdf._id,
+      performedBy: req.user.id,
+      ipAddress: req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress || '',
+      status: 'success',
+    });
+
+    console.log(`[AUDIT] ADMIN_DELETE_PDF SUCCESS: ID: ${pdf._id} by Admin: ${req.user.id}`);
 
     res.status(200).json({
       success: true,
+      message: 'PDF soft-deleted successfully',
       data: {}
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// @desc    Restore a PDF (Admins only)
+// @route   PATCH /api/pdfs/:id/restore
+// @access  Private/Admin
+exports.restorePdf = async (req, res, next) => {
+  try {
+    // Specifically search with isDeleted: true to locate soft-deleted record
+    const pdf = await Pdf.findOne({ _id: req.params.id, isDeleted: true });
+
+    if (!pdf) {
+      return res.status(404).json({ success: false, message: 'Soft-deleted PDF not found' });
+    }
+
+    pdf.isDeleted = false;
+    pdf.deletedAt = null;
+    await pdf.save();
+
+    // Create success audit log
+    await AuditLog.create({
+      action: 'ADMIN_RESTORE_PDF',
+      targetType: 'pdf',
+      targetId: pdf._id,
+      performedBy: req.user.id,
+      ipAddress: req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress || '',
+      status: 'success',
+    });
+
+    console.log(`[AUDIT] ADMIN_RESTORE_PDF SUCCESS: ID: ${pdf._id} by Admin: ${req.user.id}`);
+
+    res.status(200).json({
+      success: true,
+      message: 'PDF restored successfully',
+      data: pdf
     });
   } catch (err) {
     next(err);

@@ -1,4 +1,5 @@
 const Service = require('../models/Service');
+const AuditLog = require('../models/AuditLog');
 const fs = require('fs');
 const path = require('path');
 const { uploadToSupabase } = require('../utils/supabaseStorage');
@@ -85,7 +86,7 @@ exports.updateService = async (req, res, next) => {
   }
 };
 
-// @desc    Delete service
+// @desc    Delete service (Soft delete with password & logging)
 // @route   DELETE /api/services/:id
 // @access  Private/Admin
 exports.deleteService = async (req, res, next) => {
@@ -93,15 +94,60 @@ exports.deleteService = async (req, res, next) => {
     const service = await Service.findById(req.params.id);
 
     if (!service) {
-      return res.status(404).json({ message: 'Service not found' });
+      return res.status(404).json({ success: false, message: 'Service not found' });
     }
 
-    // Note: With Supabase we could call supabase.storage.remove() here
-    // For now we just let the cloud handle it to prevent dangling DB issues.
+    service.isDeleted = true;
+    service.deletedAt = new Date();
+    await service.save();
 
-    await service.deleteOne();
+    // Create success audit log
+    await AuditLog.create({
+      action: 'ADMIN_DELETE_SERVICE',
+      targetType: 'service',
+      targetId: service._id,
+      performedBy: req.user.id,
+      ipAddress: req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress || '',
+      status: 'success',
+    });
 
-    res.status(200).json({ success: true, data: {} });
+    console.log(`[AUDIT] ADMIN_DELETE_SERVICE SUCCESS: ID: ${service._id} by Admin: ${req.user.id}`);
+
+    res.status(200).json({ success: true, message: 'Service soft-deleted successfully', data: {} });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// @desc    Restore service (Admins only)
+// @route   PATCH /api/services/:id/restore
+// @access  Private/Admin
+exports.restoreService = async (req, res, next) => {
+  try {
+    // Specifically search with isDeleted: true to locate soft-deleted record
+    const service = await Service.findOne({ _id: req.params.id, isDeleted: true });
+
+    if (!service) {
+      return res.status(404).json({ success: false, message: 'Soft-deleted service not found' });
+    }
+
+    service.isDeleted = false;
+    service.deletedAt = null;
+    await service.save();
+
+    // Create success audit log
+    await AuditLog.create({
+      action: 'ADMIN_RESTORE_SERVICE',
+      targetType: 'service',
+      targetId: service._id,
+      performedBy: req.user.id,
+      ipAddress: req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress || '',
+      status: 'success',
+    });
+
+    console.log(`[AUDIT] ADMIN_RESTORE_SERVICE SUCCESS: ID: ${service._id} by Admin: ${req.user.id}`);
+
+    res.status(200).json({ success: true, message: 'Service restored successfully', data: service });
   } catch (err) {
     next(err);
   }

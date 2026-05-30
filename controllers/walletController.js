@@ -6,6 +6,7 @@ const sendEmail = require('../utils/sendEmail');
 const Settings = require('../models/Settings');
 const mongoose = require('mongoose');
 const { uploadToSupabase } = require('../utils/supabaseStorage');
+const { createNotification } = require('./notificationController');
 
 const getCashfreeHeaders = (settings = {}) => ({
   'x-client-id': settings.cashfreeAppId || process.env.CASHFREE_APP_ID,
@@ -85,6 +86,13 @@ exports.adminAddFunds = async (req, res, next) => {
       }], { session });
     });
 
+    await createNotification({
+      userId: user._id,
+      title: 'Wallet Credited',
+      message: `Rs.${amount} has been added to your wallet by admin.`,
+      type: 'wallet_approved'
+    });
+
     res.status(200).json({
       success: true,
       message: `Rs.${amount} added to ${user.name}'s wallet`,
@@ -130,6 +138,13 @@ exports.adminDeductFunds = async (req, res, next) => {
         performedBy: req.user.id,
         balanceAfter: user.walletBalance
       }], { session });
+    });
+
+    await createNotification({
+      userId: user._id,
+      title: 'Wallet Debited',
+      message: `Rs.${amount} has been deducted from your wallet by admin. Reason: ${reason || 'Admin adjustment'}.`,
+      type: 'wallet_approved'
     });
 
     res.status(200).json({
@@ -364,9 +379,15 @@ exports.updateFundRequestStatus = async (req, res, next) => {
           amount: request.amount,
           reason: 'Offline Wallet Topup (Admin Approved)',
           performedBy: req.user.id,
-          balanceAfter: user.walletBalance
         }], { session });
       }
+    });
+
+    await createNotification({
+      userId: request.agentId,
+      title: `Wallet Request ${status === 'approved' ? 'Approved' : 'Rejected'}`,
+      message: `Your offline wallet request of Rs.${request.amount} has been ${status}. ${adminRemark ? `Remark: ${adminRemark}` : ''}`,
+      type: 'wallet_approved'
     });
 
     try {

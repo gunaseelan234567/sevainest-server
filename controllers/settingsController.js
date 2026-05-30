@@ -42,7 +42,7 @@ exports.updateSettings = async (req, res, next) => {
     const settings = await getOrCreate();
 
     const allowed = [
-      'portalName', 'supportEmail', 'maintenanceMode', 'newRegistrations',
+      'portalName', 'supportEmail', 'supportPhone', 'maintenanceMode', 'newRegistrations',
       'minTopup', 'maxTopup', 'onlinePaymentEnabled', 'offlinePaymentEnabled',
       'jwtExpiry', 'maxLoginAttempts', 'activityLogs',
       'emailNotifications', 'applicationAlerts', 'walletAlerts', 'smsNotifications',

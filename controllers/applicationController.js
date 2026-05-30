@@ -283,10 +283,10 @@ exports.getAgentStats = async (req, res, next) => {
 exports.getAdminDashboardStats = async (req, res, next) => {
   try {
     // 1. Registered Agents Count
-    const totalAgents = await User.countDocuments({ role: 'agent' });
+    const totalAgents = await User.countDocuments({ role: 'agent', isDeleted: { $ne: true } });
 
     // 2. Pending Agent Requests
-    const pendingAgents = await User.countDocuments({ status: 'pending' });
+    const pendingAgents = await User.countDocuments({ role: 'agent', status: 'pending', isDeleted: { $ne: true } });
 
     // 3. Total Earnings (Sum of all chargeDeducted for the current month)
     const startOfMonth = new Date();

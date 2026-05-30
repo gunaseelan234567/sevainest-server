@@ -17,8 +17,8 @@ const MONGO_URI = process.env.MONGODB_URI;
 
 async function importData() {
   // Production protection safeguard
-  if (process.env.NODE_ENV === 'production') {
-    console.error('❌ FATAL ERROR: Data importing is BLOCKED in production mode to protect active collections!');
+  if (process.env.NODE_ENV === 'production' && !process.argv.includes('--force')) {
+    console.error('❌ FATAL ERROR: Data importing is BLOCKED in production mode to protect active collections! Use --force to override.');
     process.exit(1);
   }
 

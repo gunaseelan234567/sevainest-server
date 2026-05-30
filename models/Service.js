@@ -51,8 +51,30 @@ const serviceSchema = new mongoose.Schema({
     ref: 'User',
     required: true,
   },
+  isDeleted: {
+    type: Boolean,
+    default: false,
+  },
+  deletedAt: {
+    type: Date,
+    default: null,
+  },
 }, {
   timestamps: true,
+});
+
+// Exclude soft-deleted services in normal queries
+serviceSchema.pre(/^find/, function () {
+  if (this.getFilter().isDeleted === undefined) {
+    this.where({ isDeleted: { $ne: true } });
+  }
+});
+
+// Production safeguard blocking mass deletion
+serviceSchema.pre('deleteMany', async function () {
+  if (process.env.NODE_ENV === 'production' && !process.argv.includes('--force')) {
+    throw new Error('❌ SECURITY ERROR: deleteMany is strictly blocked on Service collection in production mode! Use --force to override.');
+  }
 });
 
 // Post-delete hooks to log service removals for production audit trails

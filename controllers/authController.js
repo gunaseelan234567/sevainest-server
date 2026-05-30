@@ -1,5 +1,6 @@
 const User = require('../models/User');
 const Settings = require('../models/Settings');
+const AuditLog = require('../models/AuditLog');
 const jwt = require('jsonwebtoken');
 const axios = require('axios');
 const sendEmail = require('../utils/sendEmail');
@@ -810,21 +811,77 @@ exports.login2FA = async (req, res, next) => {
   }
 };
 
-// @desc    Delete user
+// @desc    Delete user (Soft delete with password confirmation & logging)
 // @route   DELETE /api/auth/user/:id
 // @access  Private/Admin
 exports.deleteUser = async (req, res, next) => {
   try {
     const user = await User.findById(req.params.id);
     if (!user) {
-      return res.status(404).json({ message: 'User not found' });
+      return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    await user.deleteOne();
+    user.isDeleted = true;
+    user.deletedAt = new Date();
+    // Release unique constraints so the email/agentId can be registered again in the future
+    user.email = `deleted_${Date.now()}_${user.email}`;
+    if (user.agentId) {
+      user.agentId = `deleted_${Date.now()}_${user.agentId}`;
+    }
+    await user.save();
+
+    await AuditLog.create({
+      adminId: req.user.id,
+      role: req.user.role,
+      actionType: 'delete',
+      targetCollection: 'users',
+      targetId: String(user._id),
+      ipAddress: req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress || '',
+      newData: { status: 'success' }
+    });
+
+    console.log(`[AUDIT] ADMIN_DELETE_USER SUCCESS: ID: ${user._id} by Admin: ${req.user.id}`);
 
     res.status(200).json({
       success: true,
-      message: 'User deleted successfully'
+      message: 'User soft-deleted successfully'
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// @desc    Restore user (Admins only)
+// @route   PATCH /api/auth/user/:id/restore
+// @access  Private/Admin
+exports.restoreUser = async (req, res, next) => {
+  try {
+    // Specifically search with isDeleted: true to locate soft-deleted record
+    const user = await User.findOne({ _id: req.params.id, isDeleted: true });
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'Soft-deleted user not found' });
+    }
+
+    user.isDeleted = false;
+    user.deletedAt = null;
+    await user.save();
+
+    await AuditLog.create({
+      adminId: req.user.id,
+      role: req.user.role,
+      actionType: 'update',
+      targetCollection: 'users',
+      targetId: String(user._id),
+      ipAddress: req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress || '',
+      newData: { status: 'restore_success' }
+    });
+
+    console.log(`[AUDIT] ADMIN_RESTORE_USER SUCCESS: ID: ${user._id} by Admin: ${req.user.id}`);
+
+    res.status(200).json({
+      success: true,
+      message: 'User restored successfully',
+      data: user
     });
   } catch (err) {
     next(err);
@@ -865,3 +922,85 @@ const sendTokenResponse = (user, statusCode, res) => {
       }
     });
 };
+
+// @desc    Verify critical action password and issue a short-lived token
+// @route   POST /api/auth/verify-critical-action
+// @access  Private/Admin
+exports.verifyCriticalAction = async (req, res, next) => {
+  try {
+    const { password, actionType } = req.body;
+    
+    if (!password) {
+      return res.status(400).json({ success: false, message: 'Password is required' });
+    }
+
+    const user = await User.findById(req.user.id).select('+password');
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    const isMatch = await user.matchPassword(password);
+    if (!isMatch) {
+      return res.status(401).json({ success: false, message: 'Incorrect password' });
+    }
+
+    // Generate action token valid for 2 minutes
+    const token = jwt.sign(
+      { 
+        id: user._id, 
+        isCriticalActionVerified: true, 
+        actionType 
+      }, 
+      process.env.JWT_SECRET, 
+      { expiresIn: '2m' }
+    );
+
+    res.status(200).json({
+      success: true,
+      token
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// @desc    Update user dynamic permissions (Super Admin only)
+// @route   PUT /api/auth/users/:id/permissions
+// @access  Private/Admin
+exports.updateUserPermissions = async (req, res, next) => {
+  try {
+    const { permissions } = req.body;
+    const user = await User.findById(req.params.id);
+
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    const { logAdminAction } = require('../utils/auditLogger');
+    const oldPermissions = [...(user.permissions || [])];
+
+    user.permissions = permissions || [];
+    await user.save();
+
+    // Audit action
+    await logAdminAction({
+      adminId: req.user._id,
+      role: req.user.role,
+      actionType: 'update',
+      targetCollection: 'users',
+      targetId: user._id.toString(),
+      oldData: { permissions: oldPermissions },
+      newData: { permissions: user.permissions },
+      req
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'User permissions updated successfully',
+      data: user
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+

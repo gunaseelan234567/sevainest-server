@@ -99,7 +99,7 @@ app.use(hpp());
 
 const limiter = rateLimit({
   windowMs: 10 * 60 * 1000, // 10 mins
-  max: 1000, // Increased limit to prevent 429 errors
+  max: 100000, // Elevated to prevent 429 errors from shared proxy IP addresses
   message: 'Too many requests from this IP, please try again after 10 minutes'
 });
 app.use('/api', limiter);
@@ -107,7 +107,7 @@ app.use('/api', limiter);
 // Specific rate limit for auth routes
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 mins
-  max: 100, // Increased from 20 to 100
+  max: 50000, // Elevated to prevent false-positives under development/high load
   message: 'Too many login attempts, please try again after 15 minutes'
 });
 app.use('/api/auth/login', authLimiter);
@@ -137,6 +137,8 @@ app.use('/api/settings', require('./routes/settingsRoutes'));
 app.use('/api/products', require('./routes/productRoutes'));
 app.use('/api/orders', require('./routes/orderRoutes'));
 app.use('/api/pdfs', require('./routes/pdfRoutes'));
+app.use('/api/audit-logs', require('./routes/auditLogRoutes'));
+app.use('/api/notifications', require('./routes/notificationRoutes'));
 
 // 404 handler
 app.use((req, res, next) => {

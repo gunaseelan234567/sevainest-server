@@ -92,8 +92,34 @@ const userSchema = new mongoose.Schema({
   twoFactorSecret: {
     type: String,
   },
+  isDeleted: {
+    type: Boolean,
+    default: false,
+  },
+  deletedAt: {
+    type: Date,
+    default: null,
+  },
+  permissions: {
+    type: [String],
+    default: ['users.read', 'services.read'], // Default dynamic permissions
+  },
 }, {
   timestamps: true,
+});
+
+// Exclude soft-deleted users in normal queries
+userSchema.pre(/^find/, function () {
+  if (this.getFilter().isDeleted === undefined) {
+    this.where({ isDeleted: { $ne: true } });
+  }
+});
+
+// Production safeguard blocking mass deletion
+userSchema.pre('deleteMany', async function () {
+  if (process.env.NODE_ENV === 'production' && !process.argv.includes('--force')) {
+    throw new Error('❌ SECURITY ERROR: deleteMany is strictly blocked on User collection in production mode! Use --force to override.');
+  }
 });
 
 // Encrypt password using bcrypt
