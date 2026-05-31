@@ -6,6 +6,7 @@ const {
   updateService,
   deleteService,
   restoreService,
+  bulkUpdateEsevaiStatus,
 } = require('../controllers/serviceController');
 const { protect, authorize } = require('../middleware/auth');
 const { deleteRateLimiter, verifyAdminDelete } = require('../middleware/deleteGuard');
@@ -17,6 +18,7 @@ router.use(protect);
 
 router.get('/', getServices);
 router.get('/all', authorize('admin'), getAllServices);
+router.put('/esevai-setup', authorize('admin'), bulkUpdateEsevaiStatus);
 router.post('/', authorize('admin'), upload.single('image'), createService);
 const criticalActionGuard = require('../middleware/criticalActionGuard');
 

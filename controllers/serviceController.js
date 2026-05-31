@@ -152,3 +152,27 @@ exports.restoreService = async (req, res, next) => {
     next(err);
   }
 };
+
+// @desc    Bulk update ESevai status of services
+// @route   PUT /api/services/esevai-setup
+// @access  Private/Admin
+exports.bulkUpdateEsevaiStatus = async (req, res, next) => {
+  try {
+    const { serviceIds } = req.body;
+    
+    // Set all services to isEsevai: false
+    await Service.updateMany({}, { isEsevai: false });
+    
+    // Set selected services to isEsevai: true
+    if (serviceIds && serviceIds.length > 0) {
+      await Service.updateMany({ _id: { $in: serviceIds } }, { isEsevai: true });
+    }
+
+    res.status(200).json({ 
+      success: true, 
+      message: 'ESevai services configured successfully' 
+    });
+  } catch (err) {
+    next(err);
+  }
+};

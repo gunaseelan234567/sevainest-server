@@ -1,17 +1,30 @@
 const mongoose = require('mongoose');
 
+const columnSchema = new mongoose.Schema({
+  label: { type: String, required: true },
+  name: { type: String, required: true },
+  type: {
+    type: String,
+    enum: ['text', 'number', 'dropdown', 'date', 'checkbox'],
+    required: true,
+  },
+  required: { type: Boolean, default: false },
+  options: [{ type: String }],
+});
+
 const fieldSchema = new mongoose.Schema({
   label: { type: String, required: true },
   name: { type: String, required: true },
   type: {
     type: String,
-    enum: ['text', 'textarea', 'number', 'date', 'dropdown', 'checkbox', 'file', 'group'],
+    enum: ['text', 'textarea', 'number', 'date', 'dropdown', 'checkbox', 'file', 'group', 'repeater'],
     required: true,
   },
   required: { type: Boolean, default: false },
   placeholder: { type: String },
   options: [{ type: String }], // For dropdowns
   allowedTypes: [{ type: String }], // For file uploads
+  columns: [columnSchema], // For repeater tables
 });
 
 // Add subFields to allow recursive nesting for groups
@@ -37,6 +50,10 @@ const serviceSchema = new mongoose.Schema({
     type: String,
     enum: ['active', 'inactive'],
     default: 'active',
+  },
+  isEsevai: {
+    type: Boolean,
+    default: false,
   },
   imageUrl: {
     type: String,

@@ -43,12 +43,13 @@ exports.deleteNotice = async (req, res, next) => {
 
     // Create success audit log
     await AuditLog.create({
-      action: 'ADMIN_DELETE_NOTICE',
-      targetType: 'notice',
-      targetId: notice._id,
-      performedBy: req.user.id,
+      adminId: req.user.id,
+      role: req.user.role || 'admin',
+      actionType: 'delete',
+      targetCollection: 'notices',
+      targetId: notice._id.toString(),
       ipAddress: req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress || '',
-      status: 'success',
+      newData: { status: 'deleted' }
     });
 
     console.log(`[AUDIT] ADMIN_DELETE_NOTICE SUCCESS: ID: ${notice._id} by Admin: ${req.user.id}`);
@@ -77,12 +78,13 @@ exports.restoreNotice = async (req, res, next) => {
 
     // Create success audit log
     await AuditLog.create({
-      action: 'ADMIN_RESTORE_NOTICE',
-      targetType: 'notice',
-      targetId: notice._id,
-      performedBy: req.user.id,
+      adminId: req.user.id,
+      role: req.user.role || 'admin',
+      actionType: 'update',
+      targetCollection: 'notices',
+      targetId: notice._id.toString(),
       ipAddress: req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress || '',
-      status: 'success',
+      newData: { status: 'restored' }
     });
 
     console.log(`[AUDIT] ADMIN_RESTORE_NOTICE SUCCESS: ID: ${notice._id} by Admin: ${req.user.id}`);

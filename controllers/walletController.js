@@ -65,26 +65,52 @@ exports.adminAddFunds = async (req, res, next) => {
 
     let user;
 
-    await session.withTransaction(async () => {
-      user = await User.findByIdAndUpdate(
-        userId,
-        { $inc: { walletBalance: amount } },
-        { new: true, session }
-      );
+    try {
+      await session.withTransaction(async () => {
+        user = await User.findByIdAndUpdate(
+          userId,
+          { $inc: { walletBalance: amount } },
+          { new: true, session }
+        );
 
-      if (!user) {
-        throw Object.assign(new Error('User not found'), { statusCode: 404 });
+        if (!user) {
+          throw Object.assign(new Error('User not found'), { statusCode: 404 });
+        }
+
+        await WalletTransaction.create([{
+          agentId: user._id,
+          type: 'credit',
+          amount,
+          reason: reason || 'Funds added by Admin',
+          performedBy: req.user.id,
+          balanceAfter: user.walletBalance
+        }], { session });
+      });
+    } catch (err) {
+      if (err.message?.includes('replica set') || err.message?.includes('Transaction numbers')) {
+        // Fallback for standalone MongoDB (No Transaction Support)
+        user = await User.findByIdAndUpdate(
+          userId,
+          { $inc: { walletBalance: amount } },
+          { new: true }
+        );
+
+        if (!user) {
+          return res.status(404).json({ message: 'User not found' });
+        }
+
+        await WalletTransaction.create([{
+          agentId: user._id,
+          type: 'credit',
+          amount,
+          reason: reason || 'Funds added by Admin',
+          performedBy: req.user.id,
+          balanceAfter: user.walletBalance
+        }]);
+      } else {
+        throw err;
       }
-
-      await WalletTransaction.create([{
-        agentId: user._id,
-        type: 'credit',
-        amount,
-        reason: reason || 'Funds added by Admin',
-        performedBy: req.user.id,
-        balanceAfter: user.walletBalance
-      }], { session });
-    });
+    }
 
     await createNotification({
       userId: user._id,
@@ -119,26 +145,52 @@ exports.adminDeductFunds = async (req, res, next) => {
 
     let user;
 
-    await session.withTransaction(async () => {
-      user = await User.findOneAndUpdate(
-        { _id: userId, walletBalance: { $gte: amount } },
-        { $inc: { walletBalance: -amount } },
-        { new: true, session }
-      );
+    try {
+      await session.withTransaction(async () => {
+        user = await User.findOneAndUpdate(
+          { _id: userId, walletBalance: { $gte: amount } },
+          { $inc: { walletBalance: -amount } },
+          { new: true, session }
+        );
 
-      if (!user) {
-        throw Object.assign(new Error('User not found or insufficient balance for deduction'), { statusCode: 400 });
+        if (!user) {
+          throw Object.assign(new Error('User not found or insufficient balance for deduction'), { statusCode: 400 });
+        }
+
+        await WalletTransaction.create([{
+          agentId: user._id,
+          type: 'debit',
+          amount,
+          reason: reason || 'Funds deducted by Admin',
+          performedBy: req.user.id,
+          balanceAfter: user.walletBalance
+        }], { session });
+      });
+    } catch (err) {
+      if (err.message?.includes('replica set') || err.message?.includes('Transaction numbers')) {
+        // Fallback for standalone MongoDB (No Transaction Support)
+        user = await User.findOneAndUpdate(
+          { _id: userId, walletBalance: { $gte: amount } },
+          { $inc: { walletBalance: -amount } },
+          { new: true }
+        );
+
+        if (!user) {
+          return res.status(400).json({ message: 'User not found or insufficient balance for deduction' });
+        }
+
+        await WalletTransaction.create([{
+          agentId: user._id,
+          type: 'debit',
+          amount,
+          reason: reason || 'Funds deducted by Admin',
+          performedBy: req.user.id,
+          balanceAfter: user.walletBalance
+        }]);
+      } else {
+        throw err;
       }
-
-      await WalletTransaction.create([{
-        agentId: user._id,
-        type: 'debit',
-        amount,
-        reason: reason || 'Funds deducted by Admin',
-        performedBy: req.user.id,
-        balanceAfter: user.walletBalance
-      }], { session });
-    });
+    }
 
     await createNotification({
       userId: user._id,
@@ -225,48 +277,96 @@ exports.verifyCashfreePayment = async (req, res) => {
     let fundRequest;
     let user;
 
-    await session.withTransaction(async () => {
-      fundRequest = await FundRequest.findOneAndUpdate(
-        { transactionId: order_id, agentId: req.user.id, status: 'pending' },
-        {
-          $set: {
-            status: 'approved',
-            processedAt: Date.now(),
-            processedBy: req.user.id
+    try {
+      await session.withTransaction(async () => {
+        fundRequest = await FundRequest.findOneAndUpdate(
+          { transactionId: order_id, agentId: req.user.id, status: 'pending' },
+          {
+            $set: {
+              status: 'approved',
+              processedAt: Date.now(),
+              processedBy: req.user.id
+            }
+          },
+          { new: true, session }
+        );
+
+        if (!fundRequest) {
+          const alreadyDone = await FundRequest.findOne({
+            transactionId: order_id,
+            agentId: req.user.id,
+            status: 'approved'
+          }).session(session);
+
+          if (alreadyDone) {
+            throw Object.assign(new Error('Already processed'), { statusCode: 200 });
           }
-        },
-        { new: true, session }
-      );
 
-      if (!fundRequest) {
-        const alreadyDone = await FundRequest.findOne({
-          transactionId: order_id,
-          agentId: req.user.id,
-          status: 'approved'
-        }).session(session);
-
-        if (alreadyDone) {
-          throw Object.assign(new Error('Already processed'), { statusCode: 200 });
+          throw Object.assign(new Error('Transaction record not found or already processed'), { statusCode: 400 });
         }
 
-        throw Object.assign(new Error('Transaction record not found or already processed'), { statusCode: 400 });
+        user = await User.findByIdAndUpdate(
+          fundRequest.agentId,
+          { $inc: { walletBalance: Number(fundRequest.amount) } },
+          { new: true, session }
+        );
+
+        await WalletTransaction.create([{
+          agentId: user._id,
+          type: 'credit',
+          amount: Number(fundRequest.amount),
+          reason: 'Online Wallet Topup (Cashfree)',
+          performedBy: user._id,
+          balanceAfter: user.walletBalance
+        }], { session });
+      });
+    } catch (err) {
+      if (err.message?.includes('replica set') || err.message?.includes('Transaction numbers')) {
+        // Fallback for standalone MongoDB (No Transaction Support)
+        fundRequest = await FundRequest.findOneAndUpdate(
+          { transactionId: order_id, agentId: req.user.id, status: 'pending' },
+          {
+            $set: {
+              status: 'approved',
+              processedAt: Date.now(),
+              processedBy: req.user.id
+            }
+          },
+          { new: true }
+        );
+
+        if (!fundRequest) {
+          const alreadyDone = await FundRequest.findOne({
+            transactionId: order_id,
+            agentId: req.user.id,
+            status: 'approved'
+          });
+
+          if (alreadyDone) {
+            return res.status(200).json({ success: true, message: 'Already processed' });
+          }
+
+          return res.status(400).json({ message: 'Transaction record not found or already processed' });
+        }
+
+        user = await User.findByIdAndUpdate(
+          fundRequest.agentId,
+          { $inc: { walletBalance: Number(fundRequest.amount) } },
+          { new: true }
+        );
+
+        await WalletTransaction.create([{
+          agentId: user._id,
+          type: 'credit',
+          amount: Number(fundRequest.amount),
+          reason: 'Online Wallet Topup (Cashfree)',
+          performedBy: user._id,
+          balanceAfter: user.walletBalance
+        }]);
+      } else {
+        throw err;
       }
-
-      user = await User.findByIdAndUpdate(
-        fundRequest.agentId,
-        { $inc: { walletBalance: Number(fundRequest.amount) } },
-        { new: true, session }
-      );
-
-      await WalletTransaction.create([{
-        agentId: user._id,
-        type: 'credit',
-        amount: Number(fundRequest.amount),
-        reason: 'Online Wallet Topup (Cashfree)',
-        performedBy: user._id,
-        balanceAfter: user.walletBalance
-      }], { session });
-    });
+    }
 
     try {
       await sendEmail({
@@ -348,40 +448,82 @@ exports.updateFundRequestStatus = async (req, res, next) => {
       return res.status(400).json({ message: 'Invalid request status' });
     }
 
-    await session.withTransaction(async () => {
-      request = await FundRequest.findOneAndUpdate(
-        { _id: req.params.id, status: 'pending' },
-        {
-          $set: {
-            status,
-            adminRemark,
-            processedBy: req.user.id,
-            processedAt: Date.now()
-          }
-        },
-        { new: true, session }
-      );
-
-      if (!request) {
-        throw Object.assign(new Error('Request not found or already processed'), { statusCode: 400 });
-      }
-
-      if (status === 'approved') {
-        user = await User.findByIdAndUpdate(
-          request.agentId,
-          { $inc: { walletBalance: request.amount } },
+    try {
+      await session.withTransaction(async () => {
+        request = await FundRequest.findOneAndUpdate(
+          { _id: req.params.id, status: 'pending' },
+          {
+            $set: {
+              status,
+              adminRemark,
+              processedBy: req.user.id,
+              processedAt: Date.now()
+            }
+          },
           { new: true, session }
         );
 
-        await WalletTransaction.create([{
-          agentId: user._id,
-          type: 'credit',
-          amount: request.amount,
-          reason: 'Offline Wallet Topup (Admin Approved)',
-          performedBy: req.user.id,
-        }], { session });
+        if (!request) {
+          throw Object.assign(new Error('Request not found or already processed'), { statusCode: 400 });
+        }
+
+        if (status === 'approved') {
+          user = await User.findByIdAndUpdate(
+            request.agentId,
+            { $inc: { walletBalance: request.amount } },
+            { new: true, session }
+          );
+
+          await WalletTransaction.create([{
+            agentId: user._id,
+            type: 'credit',
+            amount: request.amount,
+            reason: 'Offline Wallet Topup (Admin Approved)',
+            performedBy: req.user.id,
+            balanceAfter: user.walletBalance
+          }], { session });
+        }
+      });
+    } catch (err) {
+      if (err.message?.includes('replica set') || err.message?.includes('Transaction numbers')) {
+        // Fallback for standalone MongoDB (No Transaction Support)
+        request = await FundRequest.findOneAndUpdate(
+          { _id: req.params.id, status: 'pending' },
+          {
+            $set: {
+              status,
+              adminRemark,
+              processedBy: req.user.id,
+              processedAt: Date.now()
+            }
+          },
+          { new: true }
+        );
+
+        if (!request) {
+          return res.status(400).json({ message: 'Request not found or already processed' });
+        }
+
+        if (status === 'approved') {
+          user = await User.findByIdAndUpdate(
+            request.agentId,
+            { $inc: { walletBalance: request.amount } },
+            { new: true }
+          );
+
+          await WalletTransaction.create([{
+            agentId: user._id,
+            type: 'credit',
+            amount: request.amount,
+            reason: 'Offline Wallet Topup (Admin Approved)',
+            performedBy: req.user.id,
+            balanceAfter: user.walletBalance
+          }]);
+        }
+      } else {
+        throw err;
       }
-    });
+    }
 
     await createNotification({
       userId: request.agentId,

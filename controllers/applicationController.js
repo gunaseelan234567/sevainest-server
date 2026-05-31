@@ -36,34 +36,68 @@ exports.submitApplication = async (req, res, next) => {
       return res.status(404).json({ message: 'Service not found' });
     }
 
-    await session.withTransaction(async () => {
-      user = await User.findOneAndUpdate(
-        { _id: req.user.id, walletBalance: { $gte: service.chargeAmount } },
-        { $inc: { walletBalance: -service.chargeAmount } },
-        { new: true, session }
-      );
+    try {
+      await session.withTransaction(async () => {
+        user = await User.findOneAndUpdate(
+          { _id: req.user.id, walletBalance: { $gte: service.chargeAmount } },
+          { $inc: { walletBalance: -service.chargeAmount } },
+          { new: true, session }
+        );
 
-      if (!user) {
-        throw Object.assign(new Error('Insufficient wallet balance'), { statusCode: 400 });
+        if (!user) {
+          throw Object.assign(new Error('Insufficient wallet balance'), { statusCode: 400 });
+        }
+
+        [application] = await Application.create([{
+          serviceId,
+          agentId: req.user.id,
+          formData,
+          uploadedFiles,
+          chargeDeducted: service.chargeAmount
+        }], { session });
+
+        await WalletTransaction.create([{
+          agentId: req.user.id,
+          type: 'debit',
+          amount: service.chargeAmount,
+          reason: `Application submitted for ${service.title}`,
+          performedBy: req.user.id,
+          balanceAfter: user.walletBalance
+        }], { session });
+      });
+    } catch (err) {
+      if (err.message?.includes('replica set') || err.message?.includes('Transaction numbers')) {
+        // Fallback for standalone MongoDB (No Transaction Support)
+        user = await User.findOneAndUpdate(
+          { _id: req.user.id, walletBalance: { $gte: service.chargeAmount } },
+          { $inc: { walletBalance: -service.chargeAmount } },
+          { new: true }
+        );
+
+        if (!user) {
+          return res.status(400).json({ message: 'Insufficient wallet balance' });
+        }
+
+        application = await Application.create({
+          serviceId,
+          agentId: req.user.id,
+          formData,
+          uploadedFiles,
+          chargeDeducted: service.chargeAmount
+        });
+
+        await WalletTransaction.create({
+          agentId: req.user.id,
+          type: 'debit',
+          amount: service.chargeAmount,
+          reason: `Application submitted for ${service.title}`,
+          performedBy: req.user.id,
+          balanceAfter: user.walletBalance
+        });
+      } else {
+        throw err;
       }
-
-      [application] = await Application.create([{
-        serviceId,
-        agentId: req.user.id,
-        formData,
-        uploadedFiles,
-        chargeDeducted: service.chargeAmount
-      }], { session });
-
-      await WalletTransaction.create([{
-        agentId: req.user.id,
-        type: 'debit',
-        amount: service.chargeAmount,
-        reason: `Application submitted for ${service.title}`,
-        performedBy: req.user.id,
-        balanceAfter: user.walletBalance
-      }], { session });
-    });
+    }
 
     // Notify agent via email
     try {
@@ -133,44 +167,88 @@ exports.updateApplicationStatus = async (req, res, next) => {
       return res.status(404).json({ message: 'Application not found' });
     }
 
-    await session.withTransaction(async () => {
-      application = await Application.findById(req.params.id).session(session);
+    try {
+      await session.withTransaction(async () => {
+        application = await Application.findById(req.params.id).session(session);
 
-      application.status = status;
-      application.adminRemark = adminRemark || application.adminRemark;
+        application.status = status;
+        application.adminRemark = adminRemark || application.adminRemark;
 
-      if (req.file && status === 'approved') {
-        const publicUrl = await uploadToSupabase(req.file, 'applications');
-        application.approvedDoc = {
-          fileName: req.file.originalname,
-          fileUrl: publicUrl
-        };
-      }
-
-      if (status === 'rejected' && !application.refundedAt) {
-        const agent = await User.findByIdAndUpdate(
-          application.agentId,
-          { $inc: { walletBalance: application.chargeDeducted } },
-          { new: true, session }
-        );
-
-        if (agent) {
-          const [refund] = await WalletTransaction.create([{
-            agentId: agent._id,
-            type: 'credit',
-            amount: application.chargeDeducted,
-            reason: `Refund for rejected application ${application.applicationId}`,
-            performedBy: req.user.id,
-            balanceAfter: agent.walletBalance
-          }], { session });
-
-          application.refundedAt = new Date();
-          application.refundTransactionId = refund._id;
+        if (req.file && status === 'approved') {
+          const publicUrl = await uploadToSupabase(req.file, 'applications');
+          application.approvedDoc = {
+            fileName: req.file.originalname,
+            fileUrl: publicUrl
+          };
         }
-      }
 
-      await application.save({ session });
-    });
+        if (status === 'rejected' && !application.refundedAt) {
+          const agent = await User.findByIdAndUpdate(
+            application.agentId,
+            { $inc: { walletBalance: application.chargeDeducted } },
+            { new: true, session }
+          );
+
+          if (agent) {
+            const [refund] = await WalletTransaction.create([{
+              agentId: agent._id,
+              type: 'credit',
+              amount: application.chargeDeducted,
+              reason: `Refund for rejected application ${application.applicationId}`,
+              performedBy: req.user.id,
+              balanceAfter: agent.walletBalance
+            }], { session });
+
+            application.refundedAt = new Date();
+            application.refundTransactionId = refund._id;
+          }
+        }
+
+        await application.save({ session });
+      });
+    } catch (err) {
+      if (err.message?.includes('replica set') || err.message?.includes('Transaction numbers')) {
+        // Fallback for standalone MongoDB (No Transaction Support)
+        application = await Application.findById(req.params.id);
+
+        application.status = status;
+        application.adminRemark = adminRemark || application.adminRemark;
+
+        if (req.file && status === 'approved') {
+          const publicUrl = await uploadToSupabase(req.file, 'applications');
+          application.approvedDoc = {
+            fileName: req.file.originalname,
+            fileUrl: publicUrl
+          };
+        }
+
+        if (status === 'rejected' && !application.refundedAt) {
+          const agent = await User.findByIdAndUpdate(
+            application.agentId,
+            { $inc: { walletBalance: application.chargeDeducted } },
+            { new: true }
+          );
+
+          if (agent) {
+            const refund = await WalletTransaction.create({
+              agentId: agent._id,
+              type: 'credit',
+              amount: application.chargeDeducted,
+              reason: `Refund for rejected application ${application.applicationId}`,
+              performedBy: req.user.id,
+              balanceAfter: agent.walletBalance
+            });
+
+            application.refundedAt = new Date();
+            application.refundTransactionId = refund._id;
+          }
+        }
+
+        await application.save();
+      } else {
+        throw err;
+      }
+    }
 
     // Notify agent via email
     try {
