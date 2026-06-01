@@ -43,6 +43,10 @@ app.set('trust proxy', 1); // Trust Railway's proxy for correct rate limiting IP
 // Enable CORS
 const allowedOrigins = [
   process.env.FRONTEND_URL,
+  // sevainestt.in (double-T) — production domain
+  'https://www.sevainestt.in',
+  'https://sevainestt.in',
+  // sevainest.in (single-T) — legacy / alternate
   'https://www.sevainest.in',
   'https://sevainest.in',
   'https://sevainest.vercel.app',
