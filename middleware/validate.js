@@ -62,12 +62,12 @@ const schemas = {
   // ─── Wallet Schemas ─────────────────────────────────────────────────────
   adminFunds: z.object({
     userId: z.string().min(1, 'User ID is required'),
-    amount: z.number({ invalid_type_error: 'Amount must be a number' }).positive('Amount must be positive'),
+    amount: z.coerce.number({ invalid_type_error: 'Amount must be a number' }).positive('Amount must be positive'),
     reason: z.string().optional(),
   }),
 
   onlineOrder: z.object({
-    amount: z.number({ invalid_type_error: 'Amount must be a number' }).min(50, 'Minimum wallet load amount is Rs.50'),
+    amount: z.coerce.number({ invalid_type_error: 'Amount must be a number' }).min(50, 'Minimum wallet load amount is Rs.50'),
   }),
 
   offlineRequest: z.object({
