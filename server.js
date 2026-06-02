@@ -178,6 +178,20 @@ app.use((err, req, res, next) => {
     res.status(400);
   }
 
+  // Multer File Upload errors
+  if (err.name === 'MulterError') {
+    res.status(400);
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      error.message = 'File upload failed: file size exceeds the 1MB limit.';
+    } else if (err.code === 'LIMIT_FILE_COUNT') {
+      error.message = 'File upload failed: too many files uploaded.';
+    } else if (err.code === 'LIMIT_UNEXPECTED_FILE') {
+      error.message = `File upload failed: unexpected field '${err.field}'.`;
+    } else {
+      error.message = `File upload error: ${err.message}`;
+    }
+  }
+
   const statusCode = res.statusCode === 200 ? 500 : res.statusCode;
 
   res.status(statusCode).json({

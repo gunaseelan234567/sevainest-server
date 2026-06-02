@@ -7,6 +7,7 @@ const sendEmail = require('../utils/sendEmail');
 const speakeasy = require('speakeasy');
 const QRCode = require('qrcode');
 const crypto = require('crypto');
+const logger = require('../utils/logger');
 
 const generateOtp = () => crypto.randomInt(100000, 1000000).toString();
 const hashOtp = (otp) => crypto
@@ -86,10 +87,10 @@ const generateAgentId = async () => {
       }
     }
 
-    console.log(`🎫 Generated Unique Agent ID: ${finalId}`);
+    logger.log(`🎫 Generated Unique Agent ID: ${finalId}`);
     return finalId;
   } catch (err) {
-    console.error('❌ Error generating Agent ID:', err);
+    logger.error('❌ Error generating Agent ID:', err);
     return `AGT-${Date.now().toString().slice(-4)}${Math.floor(Math.random() * 99)}`;
   }
 };
@@ -195,7 +196,7 @@ exports.registerAgent = async (req, res, next) => {
           : `Hello ${user.name},\n\nThank you for registering as an agent with Sevainest. Your account is currently under approval. Once activated, you will receive another email with your Agent ID.\n\nRegistration Fee: ₹${registrationFee}\n\nBest regards,\nSevainest Team`,
       });
     } catch (err) {
-      console.error('Email could not be sent');
+      logger.error('Email could not be sent');
     }
 
     res.status(201).json({
@@ -214,7 +215,7 @@ exports.registerAgent = async (req, res, next) => {
 exports.verifyRegistrationPayment = async (req, res, next) => {
   try {
     const { order_id } = req.body;
-    console.log('Verifying Registration Payment:', order_id);
+    logger.log('Verifying Registration Payment:', order_id);
     const settings = await Settings.findOne({ key: 'portal' });
 
     const response = await axios.get(
@@ -222,17 +223,17 @@ exports.verifyRegistrationPayment = async (req, res, next) => {
       { headers: getCashfreeHeaders(settings) }
     );
 
-    console.log('Cashfree Status Response:', response.data.order_status);
+    logger.log('Cashfree Status Response:', response.data.order_status);
 
     if (response.data.order_status === 'PAID') {
       const user = await User.findOne({ registrationOrderId: order_id }).select('+password');
       if (!user) {
-        console.log('User not found for registration ID:', order_id);
+        logger.log('User not found for registration ID:', order_id);
         return res.status(404).json({ message: 'User not found' });
       }
 
       if (user.status === 'active') {
-        console.log('User already active:', user.email);
+        logger.log('User already active:', user.email);
         const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
           expiresIn: process.env.JWT_EXPIRE || '30d'
         });
@@ -265,7 +266,7 @@ exports.verifyRegistrationPayment = async (req, res, next) => {
       
       await user.save();
 
-      console.log('User Activated Instantly:', user.email, 'Agent ID:', user.agentId);
+      logger.log('User Activated Instantly:', user.email, 'Agent ID:', user.agentId);
 
       // Generate Token for auto-login
       const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
@@ -296,7 +297,7 @@ exports.verifyRegistrationPayment = async (req, res, next) => {
         }
       });
     } else {
-      console.log('Payment not PAID. Current status:', response.data.order_status);
+      logger.log('Payment not PAID. Current status:', response.data.order_status);
       res.status(400).json({ message: `Payment not completed. Status: ${response.data.order_status}` });
     }
   } catch (err) {
@@ -316,7 +317,7 @@ exports.activateAgent = async (req, res, next) => {
       return res.status(200).json({ success: true, message: 'Agent is already active', data: user });
     }
 
-    console.log(`👤 Activating agent: ${user.email} (Current Status: ${user.status})`);
+    logger.log(`👤 Activating agent: ${user.email} (Current Status: ${user.status})`);
 
     let activated = false;
     let attempts = 0;
@@ -337,12 +338,12 @@ exports.activateAgent = async (req, res, next) => {
         await user.save();
         activated = true;
       } catch (saveErr) {
-        console.error(`❌ Activation Attempt ${attempts} failed:`, saveErr.message);
+        logger.error(`❌ Activation Attempt ${attempts} failed:`, saveErr.message);
         
         if (saveErr.code === 11000) {
           const field = Object.keys(saveErr.keyPattern || {})[0];
           if (field === 'agentId') {
-            console.log(`🔄 Retrying with a new ID due to collision on ${user.agentId}...`);
+            logger.log(`🔄 Retrying with a new ID due to collision on ${user.agentId}...`);
             user.agentId = undefined; // Force re-generation in next loop
             continue;
           }
@@ -359,7 +360,7 @@ exports.activateAgent = async (req, res, next) => {
       return res.status(500).json({ message: 'Failed to activate agent after multiple attempts due to ID collisions.' });
     }
 
-    console.log(`✅ Agent ${user.email} activated successfully with ID ${user.agentId}`);
+    logger.log(`✅ Agent ${user.email} activated successfully with ID ${user.agentId}`);
 
     // Send activation email
     try {
@@ -369,12 +370,12 @@ exports.activateAgent = async (req, res, next) => {
         message: `Hello ${user.name},\n\nCongratulations! Your Sevainest agent account has been activated.\n\nYour Agent ID: ${user.agentId}\n\nYou can now log in and start using our services.\n\nBest regards,\nSevainest Team`,
       });
     } catch (err) {
-      console.error('❌ Activation email could not be sent:', err.message);
+      logger.error('❌ Activation email could not be sent:', err.message);
     }
 
     res.status(200).json({ success: true, message: 'Agent activated successfully', data: user });
   } catch (err) {
-    console.error('❌ Failed to activate agent:', err);
+    logger.error('❌ Failed to activate agent:', err);
     next(err);
   }
 };
@@ -398,7 +399,7 @@ exports.rejectAgent = async (req, res, next) => {
         message: `Hello ${user.name},\n\nWe regret to inform you that your application for a Sevainest agent account has been declined at this time.\n\nIf you have any questions, please contact our support team.\n\nBest regards,\nSevainest Team`,
       });
     } catch (err) {
-      console.error('❌ Rejection email could not be sent:', err.message);
+      logger.error('❌ Rejection email could not be sent:', err.message);
     }
 
     res.status(200).json({ success: true, message: 'Agent rejected successfully' });
@@ -471,19 +472,31 @@ exports.getMe = async (req, res, next) => {
   }
 };
 
-// @desc    Get all users (Admin only)
-// @route   GET /api/auth/users
+// @desc    Get all users (Admin only) — paginated
+// @route   GET /api/auth/users?page=1&limit=20&status=active&role=agent
 // @access  Private/Admin
 exports.getUsers = async (req, res, next) => {
   try {
     const { status, role } = req.query;
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 20));
+    const skip = (page - 1) * limit;
+
     let query = {};
     if (status) query.status = status;
     if (role) query.role = role;
 
-    const users = await User.find(query).select('-password').sort('-createdAt');
+    const [users, total] = await Promise.all([
+      User.find(query).select('-password').sort('-createdAt').skip(skip).limit(limit),
+      User.countDocuments(query)
+    ]);
+
     res.status(200).json({
       success: true,
+      count: users.length,
+      total,
+      page,
+      pages: Math.ceil(total / limit),
       data: users,
     });
   } catch (err) {
@@ -514,7 +527,7 @@ exports.logout = async (req, res, next) => {
 exports.forgotPassword = async (req, res, next) => {
   try {
     const { email } = req.body;
-    console.log(`🔍 Forgot password request for: ${email}`);
+    logger.log(`🔍 Forgot password request for: ${email}`);
     const user = await User.findOne({ email: { $regex: new RegExp(`^${email}$`, 'i') } }).select('+password');
 
     if (!user) {
@@ -554,7 +567,7 @@ exports.forgotPassword = async (req, res, next) => {
 exports.resetPassword = async (req, res, next) => {
   try {
     const { email, otp, password } = req.body;
-    console.log(`Password reset attempt for: ${email}`);
+    logger.log(`Password reset attempt for: ${email}`);
 
     const user = await User.findOne({
       email: { $regex: new RegExp(`^${escapeRegex(email)}$`, 'i') },
@@ -562,7 +575,7 @@ exports.resetPassword = async (req, res, next) => {
     });
 
     if (!user || !isOtpMatch(otp, user.resetPasswordOTP)) {
-      console.log(`Password reset failed for ${email}`);
+      logger.log(`Password reset failed for ${email}`);
       return res.status(400).json({ message: 'Invalid or expired OTP' });
     }
 
@@ -588,17 +601,17 @@ exports.sendVerificationCode = async (req, res, next) => {
 
     // Generate 6-digit OTP
     const otp = generateOtp();
-    console.log(`Generated email verification OTP for user: ${user.email}`);
+    logger.log(`Generated email verification OTP for user: ${user.email}`);
     user.emailVerificationOTP = hashOtp(otp);
     user.emailVerificationOTPExpire = Date.now() + 10 * 60 * 1000; // 10 minutes
     
-    console.log(`💾 Saving user with OTP...`);
+    logger.log(`💾 Saving user with OTP...`);
     await user.save();
-    console.log(`✅ User saved successfully`);
+    logger.log(`✅ User saved successfully`);
 
     // Send email
     try {
-      console.log(`Sending verification OTP to ${user.email}`);
+      logger.log(`Sending verification OTP to ${user.email}`);
       await sendEmail({
         email: user.email,
         subject: 'Verify Your Sevainest Account',
@@ -606,7 +619,7 @@ exports.sendVerificationCode = async (req, res, next) => {
       });
       res.status(200).json({ success: true, message: 'Verification code sent to email' });
     } catch (err) {
-      console.error(`❌ Email delivery failed: ${err.message}`);
+      logger.error(`❌ Email delivery failed: ${err.message}`);
       user.emailVerificationOTP = undefined;
       user.emailVerificationOTPExpire = undefined;
       await user.save();
@@ -630,7 +643,7 @@ exports.verifyEmail = async (req, res, next) => {
     if (!user.emailVerificationOTP || user.emailVerificationOTPExpire < Date.now() || !isOtpMatch(otp, user.emailVerificationOTP)) {
       // Allow '000000' as a bypass in development mode
       if (false) {
-        console.log(`⚠️ Development Bypass used for ${user.email}`);
+        logger.log(`⚠️ Development Bypass used for ${user.email}`);
       } else {
         return res.status(400).json({ message: 'Invalid or expired verification code' });
       }
@@ -674,20 +687,34 @@ exports.bulkEmail = async (req, res, next) => {
 
     const users = await User.find({ _id: { $in: userIds } });
 
-    // Send emails in parallel
-    const emailPromises = users.map(user => 
-      sendEmail({
-        email: user.email,
-        subject: subject,
-        message: `Hello ${user.name},\n\n${message}\n\nBest regards,\nSevainest Admin Team`
-      })
-    );
+    // Send in batches of 10 to avoid rate-limiting Resend
+    const BATCH_SIZE = 10;
+    const BATCH_DELAY_MS = 300;
+    let sent = 0;
+    let failed = 0;
 
-    await Promise.all(emailPromises);
+    for (let i = 0; i < users.length; i += BATCH_SIZE) {
+      const batch = users.slice(i, i + BATCH_SIZE);
+      const results = await Promise.allSettled(
+        batch.map(user =>
+          sendEmail({
+            email: user.email,
+            subject: subject,
+            message: `Hello ${user.name},\n\n${message}\n\nBest regards,\nSevainest Admin Team`
+          })
+        )
+      );
+      results.forEach(r => r.status === 'fulfilled' ? sent++ : failed++);
+
+      // Delay between batches (skip after last batch)
+      if (i + BATCH_SIZE < users.length) {
+        await new Promise(resolve => setTimeout(resolve, BATCH_DELAY_MS));
+      }
+    }
 
     res.status(200).json({
       success: true,
-      message: `Emails sent successfully to ${users.length} agents`
+      message: `Emails sent: ${sent} successful, ${failed} failed out of ${users.length} recipients`
     });
   } catch (err) {
     next(err);
@@ -840,7 +867,7 @@ exports.deleteUser = async (req, res, next) => {
       newData: { status: 'success' }
     });
 
-    console.log(`[AUDIT] ADMIN_DELETE_USER SUCCESS: ID: ${user._id} by Admin: ${req.user.id}`);
+    logger.log(`[AUDIT] ADMIN_DELETE_USER SUCCESS: ID: ${user._id} by Admin: ${req.user.id}`);
 
     res.status(200).json({
       success: true,
@@ -876,7 +903,7 @@ exports.restoreUser = async (req, res, next) => {
       newData: { status: 'restore_success' }
     });
 
-    console.log(`[AUDIT] ADMIN_RESTORE_USER SUCCESS: ID: ${user._id} by Admin: ${req.user.id}`);
+    logger.log(`[AUDIT] ADMIN_RESTORE_USER SUCCESS: ID: ${user._id} by Admin: ${req.user.id}`);
 
     res.status(200).json({
       success: true,

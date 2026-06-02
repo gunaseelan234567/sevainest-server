@@ -5,6 +5,7 @@ const WalletTransaction = require('../models/WalletTransaction');
 const sendEmail = require('../utils/sendEmail');
 const mongoose = require('mongoose');
 const { uploadToSupabase } = require('../utils/supabaseStorage');
+const logger = require('../utils/logger');
 
 // @desc    Submit new application
 // @route   POST /api/applications
@@ -106,9 +107,9 @@ exports.submitApplication = async (req, res, next) => {
         subject: `Application Submitted: ${application.applicationId}`,
         message: `Hello ${user.name},\n\nYour application for "${service.title}" has been successfully submitted.\n\nApplication ID: ${application.applicationId}\nCharge Deducted: ₹${service.chargeAmount}\n\nOur team will review your application soon. You can track the status in your dashboard.\n\nBest regards,\nSevainest Team`,
       });
-      console.log(`✅ Submission email sent to ${user.email} for ${application.applicationId}`);
+      logger.log(`✅ Submission email sent to ${user.email} for ${application.applicationId}`);
     } catch (err) {
-      console.error(`❌ Submission email could not be sent: ${err.message}`);
+      logger.error(`❌ Submission email could not be sent: ${err.message}`);
     }
 
     res.status(201).json({ success: true, data: application });
@@ -136,16 +137,37 @@ exports.getMyApplications = async (req, res, next) => {
   }
 };
 
-// @desc    Get all applications (Admin)
-// @route   GET /api/applications
+// @desc    Get all applications (Admin) — paginated
+// @route   GET /api/applications?page=1&limit=20&status=pending
 // @access  Private/Admin
 exports.getApplications = async (req, res, next) => {
   try {
-    const applications = await Application.find()
-      .populate('serviceId', 'title category')
-      .populate('agentId', 'name email')
-      .sort('-createdAt');
-    res.status(200).json({ success: true, count: applications.length, data: applications });
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 20));
+    const skip = (page - 1) * limit;
+
+    const filter = {};
+    if (req.query.status) filter.status = req.query.status;
+    if (req.query.agentId) filter.agentId = req.query.agentId;
+
+    const [applications, total] = await Promise.all([
+      Application.find(filter)
+        .populate('serviceId', 'title category')
+        .populate('agentId', 'name email')
+        .sort('-createdAt')
+        .skip(skip)
+        .limit(limit),
+      Application.countDocuments(filter)
+    ]);
+
+    res.status(200).json({
+      success: true,
+      count: applications.length,
+      total,
+      page,
+      pages: Math.ceil(total / limit),
+      data: applications
+    });
   } catch (err) {
     next(err);
   }
@@ -262,10 +284,10 @@ exports.updateApplicationStatus = async (req, res, next) => {
           subject: `Application Update: ${populatedApp.applicationId} - ${status.toUpperCase()}`,
           message: `Hello ${populatedApp.agentId.name},\n\nYour application for "${populatedApp.serviceId.title}" has been updated.\n\nApplication ID: ${populatedApp.applicationId}\nNew Status: ${status.toUpperCase()}\n\nRemark: ${adminRemark || 'None'}\n\n${status === 'approved' && populatedApp.approvedDoc ? `Your certificate/document is now ready and available for download in your dashboard.\n\n` : ''}${status === 'rejected' ? `Note: Since the application was rejected, the fee of ₹${populatedApp.chargeDeducted} has been refunded to your wallet.\n\n` : ''}Please log in to your dashboard to see more details.\n\nBest regards,\nSevainest Team`,
         });
-        console.log(`✅ Status update email sent to ${populatedApp.agentId.email} for ${populatedApp.applicationId}`);
+        logger.log(`✅ Status update email sent to ${populatedApp.agentId.email} for ${populatedApp.applicationId}`);
       }
     } catch (err) {
-      console.error(`❌ Status update email could not be sent to ${application.agentId}: ${err.message}`);
+      logger.error(`❌ Status update email could not be sent to ${application.agentId}: ${err.message}`);
     }
 
     res.status(200).json({ success: true, data: application });

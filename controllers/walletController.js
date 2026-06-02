@@ -7,6 +7,7 @@ const Settings = require('../models/Settings');
 const mongoose = require('mongoose');
 const { uploadToSupabase } = require('../utils/supabaseStorage');
 const { createNotification } = require('./notificationController');
+const logger = require('../utils/logger');
 
 const getCashfreeHeaders = (settings = {}) => ({
   'x-client-id': settings.cashfreeAppId || process.env.CASHFREE_APP_ID,
@@ -254,7 +255,7 @@ exports.createOnlineOrder = async (req, res) => {
       order: response.data
     });
   } catch (err) {
-    console.error('Order creation failed:', err.response?.data || err.message);
+    logger.error('Order creation failed:', err.response?.data || err.message);
     res.status(400).json({ message: err.response?.data?.message || err.message });
   }
 };
@@ -380,7 +381,7 @@ exports.verifyCashfreePayment = async (req, res) => {
   } catch (err) {
     if (err.statusCode === 200) return res.status(200).json({ success: true, message: err.message });
     if (err.statusCode) return res.status(err.statusCode).json({ message: err.message });
-    console.error('Verification Error:', err.response?.data || err.message);
+    logger.error('Verification Error:', err.response?.data || err.message);
     res.status(400).json({ message: err.response?.data?.message || err.message });
   } finally {
     session.endSession();
@@ -542,7 +543,7 @@ exports.updateFundRequestStatus = async (req, res, next) => {
         });
       }
     } catch (err) {
-      console.error('Offline recharge status email could not be sent');
+      logger.error('Offline recharge status email could not be sent');
     }
 
     res.status(200).json({ success: true, data: request });
@@ -557,6 +558,9 @@ exports.updateFundRequestStatus = async (req, res, next) => {
 exports.getAdminTransactions = async (req, res, next) => {
   try {
     const { date } = req.query;
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 20));
+    const skip = (page - 1) * limit;
     const query = {};
 
     if (date) {
@@ -567,13 +571,21 @@ exports.getAdminTransactions = async (req, res, next) => {
       query.createdAt = { $gte: start, $lte: end };
     }
 
-    const transactions = await WalletTransaction.find(query)
-      .populate('agentId', 'name email')
-      .sort('-createdAt');
+    const [transactions, total] = await Promise.all([
+      WalletTransaction.find(query)
+        .populate('agentId', 'name email')
+        .sort('-createdAt')
+        .skip(skip)
+        .limit(limit),
+      WalletTransaction.countDocuments(query)
+    ]);
 
     res.status(200).json({
       success: true,
       count: transactions.length,
+      total,
+      page,
+      pages: Math.ceil(total / limit),
       data: transactions
     });
   } catch (err) {
