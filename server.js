@@ -143,6 +143,8 @@ app.use('/api/orders', require('./routes/orderRoutes'));
 app.use('/api/pdfs', require('./routes/pdfRoutes'));
 app.use('/api/audit-logs', require('./routes/auditLogRoutes'));
 app.use('/api/notifications', require('./routes/notificationRoutes'));
+app.use('/api/finance', require('./routes/financeRoutes'));
+
 
 // 404 handler
 app.use((req, res, next) => {

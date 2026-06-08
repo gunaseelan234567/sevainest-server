@@ -42,6 +42,9 @@ const settingsSchema = new mongoose.Schema({
   // Manual Payment
   manualPaymentQR: { type: String, default: '' },
   upiId: { type: String, default: '' },
+  // Welcome config
+  welcomeText: { type: String, default: 'Welcome to eSevai Connect! We hope you have a great day.' },
+  welcomeImage: { type: String, default: '' },
 }, {
   timestamps: true
 });

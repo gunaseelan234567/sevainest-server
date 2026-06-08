@@ -6,6 +6,9 @@ const upload = require('../middleware/upload');
 const router = express.Router();
 
 router.get('/', getSettings);
-router.patch('/', protect, authorize('admin'), upload.single('manualPaymentQR'), updateSettings);
+router.patch('/', protect, authorize('admin'), upload.fields([
+  { name: 'manualPaymentQR', maxCount: 1 },
+  { name: 'welcomeImage', maxCount: 1 }
+]), updateSettings);
 
 module.exports = router;

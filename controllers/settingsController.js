@@ -49,7 +49,7 @@ exports.updateSettings = async (req, res, next) => {
       'agentRegistrationFee',
       'activePaymentGateway', 'razorpayKeyId', 'razorpayKeySecret',
       'cashfreeAppId', 'cashfreeSecretKey', 'cashfreeEnvironment',
-      'manualPaymentQR', 'upiId'
+      'manualPaymentQR', 'upiId', 'welcomeText', 'welcomeImage'
     ];
 
     allowed.forEach(field => {
@@ -58,7 +58,15 @@ exports.updateSettings = async (req, res, next) => {
       }
     });
 
-    if (req.file) {
+    if (req.files) {
+      if (req.files.manualPaymentQR) {
+        settings.manualPaymentQR = await uploadToSupabase(req.files.manualPaymentQR[0], 'settings');
+      }
+      if (req.files.welcomeImage) {
+        settings.welcomeImage = await uploadToSupabase(req.files.welcomeImage[0], 'settings');
+      }
+    } else if (req.file) {
+      // Fallback for single file upload
       settings.manualPaymentQR = await uploadToSupabase(req.file, 'settings');
     }
 
