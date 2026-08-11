@@ -215,12 +215,18 @@ exports.adminDeductFunds = async (req, res, next) => {
 
 exports.createOnlineOrder = async (req, res) => {
   try {
-    const amount = parsePositiveAmount(req.body.amount, 50);
+    const settings = await Settings.findOne({ key: 'portal' });
+    const minTopup = settings?.minTopup ?? 100;
+    const maxTopup = settings?.maxTopup ?? 50000;
+
+    const amount = parsePositiveAmount(req.body.amount, minTopup);
     if (!amount) {
-      return res.status(400).json({ message: 'Minimum wallet load amount is Rs.50' });
+      return res.status(400).json({ message: `Minimum wallet load amount is Rs.${minTopup}` });
     }
 
-    const settings = await Settings.findOne({ key: 'portal' });
+    if (amount > maxTopup) {
+      return res.status(400).json({ message: `Maximum wallet load amount is Rs.${maxTopup}` });
+    }
     const orderData = {
       order_amount: amount,
       order_currency: 'INR',
@@ -391,10 +397,18 @@ exports.verifyCashfreePayment = async (req, res) => {
 exports.submitOfflineRequest = async (req, res, next) => {
   try {
     const { transactionId } = req.body;
-    const amount = parsePositiveAmount(req.body.amount, 50);
+    const settings = await Settings.findOne({ key: 'portal' });
+    const minTopup = settings?.minTopup ?? 100;
+    const maxTopup = settings?.maxTopup ?? 50000;
+
+    const amount = parsePositiveAmount(req.body.amount, minTopup);
 
     if (!amount) {
-      return res.status(400).json({ message: 'Minimum wallet load amount is Rs.50' });
+      return res.status(400).json({ message: `Minimum wallet load amount is Rs.${minTopup}` });
+    }
+
+    if (amount > maxTopup) {
+      return res.status(400).json({ message: `Maximum wallet load amount is Rs.${maxTopup}` });
     }
 
     if (!transactionId) {
