@@ -132,7 +132,8 @@ exports.submitApplication = async (req, res, next) => {
       logger.error(`❌ Submission email could not be sent: ${err.message}`);
     }
 
-    res.status(201).json({ success: true, data: application });
+    const signedApp = await signApplicationUrls(application);
+    res.status(201).json({ success: true, data: signedApp });
   } catch (err) {
     if (err.statusCode) {
       return res.status(err.statusCode).json({ message: err.message });
@@ -146,7 +147,7 @@ exports.submitApplication = async (req, res, next) => {
 // Helper to dynamically sign application document URLs stored in S3
 const signApplicationUrls = async (app) => {
   if (!app) return app;
-  const appObj = app.toObject ? app.toObject() : app;
+  const appObj = app.toObject ? app.toObject({ flattenMaps: true }) : app;
 
   if (appObj.uploadedFiles && appObj.uploadedFiles.length > 0) {
     appObj.uploadedFiles = await Promise.all(appObj.uploadedFiles.map(async file => {
@@ -356,7 +357,8 @@ exports.updateApplicationStatus = async (req, res, next) => {
       logger.error(`❌ Status update email could not be sent to ${application.agentId}: ${err.message}`);
     }
 
-    res.status(200).json({ success: true, data: application });
+    const signedApp = await signApplicationUrls(application);
+    res.status(200).json({ success: true, data: signedApp });
   } catch (err) {
     next(err);
   } finally {
@@ -419,7 +421,8 @@ exports.resubmitApplication = async (req, res, next) => {
 
     await application.save();
 
-    res.status(200).json({ success: true, data: application });
+    const signedApp = await signApplicationUrls(application);
+    res.status(200).json({ success: true, data: signedApp });
   } catch (err) {
     next(err);
   }
