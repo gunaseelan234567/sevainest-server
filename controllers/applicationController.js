@@ -4,7 +4,7 @@ const User = require('../models/User');
 const WalletTransaction = require('../models/WalletTransaction');
 const sendEmail = require('../utils/sendEmail');
 const mongoose = require('mongoose');
-const { uploadToSupabase } = require('../utils/supabaseStorage');
+const { uploadFile, getSignedDownloadUrl, generateS3Key } = require('../utils/s3Storage');
 const logger = require('../utils/logger');
 
 // @desc    Submit new application
@@ -16,20 +16,36 @@ exports.submitApplication = async (req, res, next) => {
   let user;
   let service;
 
-  try {
-    let { serviceId, formData } = req.body;
+  try {    let { serviceId, formData } = req.body;
 
     // Parse formData if stringified (Multer)
     if (typeof formData === 'string') {
       formData = JSON.parse(formData);
     }
 
+    const count = await Application.countDocuments();
+    const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const applicationId = `APP-${date}-${(count + 1).toString().padStart(4, '0')}`;
+    const applicationMongoId = new mongoose.Types.ObjectId();
+
     // Handle Uploaded Files (Async)
-    const uploadedFiles = req.files ? await Promise.all(req.files.map(async file => ({
-      fieldName: file.fieldname,
-      fileName: file.originalname,
-      fileUrl: await uploadToSupabase(file, 'applications')
-    }))) : [];
+    const uploadedFiles = req.files ? await Promise.all(req.files.map(async file => {
+      const fileMongoId = new mongoose.Types.ObjectId();
+      const uniqueKey = generateS3Key('applications', applicationId, file.originalname);
+      await uploadFile({
+        buffer: file.buffer,
+        key: uniqueKey,
+        contentType: file.mimetype
+      });
+      return {
+        _id: fileMongoId,
+        fieldName: file.fieldname,
+        fileName: file.originalname,
+        fileUrl: `api/applications/${applicationMongoId}/files/${fileMongoId}`,
+        storage: 's3',
+        storageKey: uniqueKey
+      };
+    })) : [];
 
     // Get service details
     service = await Service.findById(serviceId);
@@ -50,6 +66,8 @@ exports.submitApplication = async (req, res, next) => {
         }
 
         [application] = await Application.create([{
+          _id: applicationMongoId,
+          applicationId,
           serviceId,
           agentId: req.user.id,
           formData,
@@ -80,6 +98,8 @@ exports.submitApplication = async (req, res, next) => {
         }
 
         application = await Application.create({
+          _id: applicationMongoId,
+          applicationId,
           serviceId,
           agentId: req.user.id,
           formData,
@@ -123,6 +143,35 @@ exports.submitApplication = async (req, res, next) => {
   }
 };
 
+// Helper to dynamically sign application document URLs stored in S3
+const signApplicationUrls = async (app) => {
+  if (!app) return app;
+  const appObj = app.toObject ? app.toObject() : app;
+
+  if (appObj.uploadedFiles && appObj.uploadedFiles.length > 0) {
+    appObj.uploadedFiles = await Promise.all(appObj.uploadedFiles.map(async file => {
+      if (file.storage === 's3' && file.storageKey) {
+        try {
+          file.fileUrl = await getSignedDownloadUrl(file.storageKey, 900); // 15 mins
+        } catch (err) {
+          logger.error(`Failed to sign S3 file url: ${file.storageKey}`, err);
+        }
+      }
+      return file;
+    }));
+  }
+
+  if (appObj.approvedDoc && appObj.approvedDoc.storage === 's3' && appObj.approvedDoc.storageKey) {
+    try {
+      appObj.approvedDoc.fileUrl = await getSignedDownloadUrl(appObj.approvedDoc.storageKey, 900);
+    } catch (err) {
+      logger.error(`Failed to sign S3 approvedDoc url: ${appObj.approvedDoc.storageKey}`, err);
+    }
+  }
+
+  return appObj;
+};
+
 // @desc    Get agent applications
 // @route   GET /api/applications/my
 // @access  Private/Agent
@@ -131,7 +180,8 @@ exports.getMyApplications = async (req, res, next) => {
     const applications = await Application.find({ agentId: req.user.id })
       .populate('serviceId', 'title category')
       .sort('-createdAt');
-    res.status(200).json({ success: true, count: applications.length, data: applications });
+    const signedApps = await Promise.all(applications.map(app => signApplicationUrls(app)));
+    res.status(200).json({ success: true, count: signedApps.length, data: signedApps });
   } catch (err) {
     next(err);
   }
@@ -160,13 +210,15 @@ exports.getApplications = async (req, res, next) => {
       Application.countDocuments(filter)
     ]);
 
+    const signedApps = await Promise.all(applications.map(app => signApplicationUrls(app)));
+
     res.status(200).json({
       success: true,
-      count: applications.length,
+      count: signedApps.length,
       total,
       page,
       pages: Math.ceil(total / limit),
-      data: applications
+      data: signedApps
     });
   } catch (err) {
     next(err);
@@ -197,10 +249,17 @@ exports.updateApplicationStatus = async (req, res, next) => {
         application.adminRemark = adminRemark || application.adminRemark;
 
         if (req.file && status === 'approved') {
-          const publicUrl = await uploadToSupabase(req.file, 'applications');
+          const uniqueKey = generateS3Key('applications', application.applicationId, req.file.originalname);
+          await uploadFile({
+            buffer: req.file.buffer,
+            key: uniqueKey,
+            contentType: req.file.mimetype
+          });
           application.approvedDoc = {
             fileName: req.file.originalname,
-            fileUrl: publicUrl
+            fileUrl: `api/applications/${application._id}/approved-doc`,
+            storage: 's3',
+            storageKey: uniqueKey
           };
         }
 
@@ -237,10 +296,17 @@ exports.updateApplicationStatus = async (req, res, next) => {
         application.adminRemark = adminRemark || application.adminRemark;
 
         if (req.file && status === 'approved') {
-          const publicUrl = await uploadToSupabase(req.file, 'applications');
+          const uniqueKey = generateS3Key('applications', application.applicationId, req.file.originalname);
+          await uploadFile({
+            buffer: req.file.buffer,
+            key: uniqueKey,
+            contentType: req.file.mimetype
+          });
           application.approvedDoc = {
             fileName: req.file.originalname,
-            fileUrl: publicUrl
+            fileUrl: `api/applications/${application._id}/approved-doc`,
+            storage: 's3',
+            storageKey: uniqueKey
           };
         }
 
@@ -324,11 +390,23 @@ exports.resubmitApplication = async (req, res, next) => {
     }
 
     // Update files if provided (Async)
-    const newFiles = req.files ? await Promise.all(req.files.map(async file => ({
-      fieldName: file.fieldname,
-      fileName: file.originalname,
-      fileUrl: await uploadToSupabase(file, 'applications')
-    }))) : [];
+    const newFiles = req.files ? await Promise.all(req.files.map(async file => {
+      const fileMongoId = new mongoose.Types.ObjectId();
+      const uniqueKey = generateS3Key('applications', application.applicationId, file.originalname);
+      await uploadFile({
+        buffer: file.buffer,
+        key: uniqueKey,
+        contentType: file.mimetype
+      });
+      return {
+        _id: fileMongoId,
+        fieldName: file.fieldname,
+        fileName: file.originalname,
+        fileUrl: `api/applications/${application._id}/files/${fileMongoId}`,
+        storage: 's3',
+        storageKey: uniqueKey
+      };
+    })) : [];
 
     if (newFiles.length > 0) {
       application.uploadedFiles = newFiles;
@@ -479,6 +557,70 @@ exports.getAdminDashboardStats = async (req, res, next) => {
         recentTransactions
       }
     });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// @desc    Get application private file (Redirect to signed S3 URL or Supabase url)
+// @route   GET /api/applications/:id/files/:fileId
+// @access  Private
+exports.getApplicationFile = async (req, res, next) => {
+  try {
+    const application = await Application.findById(req.params.id);
+    if (!application) {
+      return res.status(404).json({ message: 'Application not found' });
+    }
+
+    // Authorization check: Admin or the owning Agent
+    if (req.user.role !== 'admin' && application.agentId.toString() !== req.user.id) {
+      return res.status(403).json({ message: 'Not authorized to access this application file' });
+    }
+
+    const file = application.uploadedFiles.id(req.params.fileId);
+    if (!file) {
+      return res.status(404).json({ message: 'File not found' });
+    }
+
+    if (file.storage === 's3' && file.storageKey) {
+      const signedUrl = await getSignedDownloadUrl(file.storageKey, 900);
+      return res.redirect(signedUrl);
+    } else {
+      // Legacy Supabase URL
+      return res.redirect(file.fileUrl);
+    }
+  } catch (err) {
+    next(err);
+  }
+};
+
+// @desc    Get application approved document (Redirect to signed S3 URL or Supabase url)
+// @route   GET /api/applications/:id/approved-doc
+// @access  Private
+exports.getApprovedDocFile = async (req, res, next) => {
+  try {
+    const application = await Application.findById(req.params.id);
+    if (!application) {
+      return res.status(404).json({ message: 'Application not found' });
+    }
+
+    // Authorization check: Admin or the owning Agent
+    if (req.user.role !== 'admin' && application.agentId.toString() !== req.user.id) {
+      return res.status(403).json({ message: 'Not authorized to access this document' });
+    }
+
+    const approvedDoc = application.approvedDoc;
+    if (!approvedDoc || !approvedDoc.fileUrl) {
+      return res.status(404).json({ message: 'Approved document not found' });
+    }
+
+    if (approvedDoc.storage === 's3' && approvedDoc.storageKey) {
+      const signedUrl = await getSignedDownloadUrl(approvedDoc.storageKey, 900);
+      return res.redirect(signedUrl);
+    } else {
+      // Legacy Supabase URL
+      return res.redirect(approvedDoc.fileUrl);
+    }
   } catch (err) {
     next(err);
   }

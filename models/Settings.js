@@ -41,10 +41,13 @@ const settingsSchema = new mongoose.Schema({
   cashfreeEnvironment: { type: String, enum: ['sandbox', 'production'], default: 'sandbox' },
   // Manual Payment
   manualPaymentQR: { type: String, default: '' },
+  manualPaymentQRKey: { type: String, default: '' },
   upiId: { type: String, default: '' },
   // Welcome config
   welcomeText: { type: String, default: 'Welcome to eSevai Connect! We hope you have a great day.' },
   welcomeImage: { type: String, default: '' },
+  welcomeImageKey: { type: String, default: '' },
+  storage: { type: String, default: 'supabase' },
 }, {
   timestamps: true
 });

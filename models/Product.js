@@ -31,6 +31,13 @@ const productSchema = new mongoose.Schema({
   imageUrl: {
     type: String,
   },
+  imageKey: {
+    type: String,
+  },
+  storage: {
+    type: String,
+    default: 'supabase',
+  },
   createdBy: {
     type: mongoose.Schema.ObjectId,
     ref: 'User',

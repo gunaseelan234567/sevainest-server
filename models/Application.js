@@ -25,6 +25,11 @@ const applicationSchema = new mongoose.Schema({
     fieldName: String,
     fileName: String,
     fileUrl: String,
+    storage: {
+      type: String,
+      default: 'supabase'
+    },
+    storageKey: String
   }],
   status: {
     type: String,
@@ -46,6 +51,11 @@ const applicationSchema = new mongoose.Schema({
   approvedDoc: {
     fileName: String,
     fileUrl: String,
+    storage: {
+      type: String,
+      default: 'supabase'
+    },
+    storageKey: String
   },
   refundedAt: {
     type: Date,

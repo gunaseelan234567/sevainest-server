@@ -32,6 +32,13 @@ const fundRequestSchema = new mongoose.Schema({
   proofImage: {
     type: String // Base64 or Path for offline requests
   },
+  proofImageKey: {
+    type: String
+  },
+  storage: {
+    type: String,
+    default: 'supabase'
+  },
   adminRemark: {
     type: String
   },

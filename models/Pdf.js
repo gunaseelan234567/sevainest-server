@@ -18,8 +18,18 @@ const pdfSchema = new mongoose.Schema({
     type: String,
     required: [true, 'Please upload a PDF file'],
   },
+  fileKey: {
+    type: String,
+  },
   imageUrl: {
     type: String,
+  },
+  imageKey: {
+    type: String,
+  },
+  storage: {
+    type: String,
+    default: 'supabase',
   },
   createdBy: {
     type: mongoose.Schema.ObjectId,

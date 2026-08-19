@@ -58,6 +58,13 @@ const serviceSchema = new mongoose.Schema({
   imageUrl: {
     type: String,
   },
+  imageKey: {
+    type: String,
+  },
+  storage: {
+    type: String,
+    default: 'supabase',
+  },
   description: {
     type: String,
     required: [true, 'Please add a short description'],

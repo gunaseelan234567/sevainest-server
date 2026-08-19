@@ -7,6 +7,8 @@ const {
   resubmitApplication,
   getAgentStats,
   getAdminDashboardStats,
+  getApplicationFile,
+  getApprovedDocFile,
 } = require('../controllers/applicationController');
 const { protect, authorize } = require('../middleware/auth');
 const upload = require('../middleware/upload');
@@ -21,6 +23,8 @@ router.get('/my', authorize('agent'), getMyApplications);
 router.get('/stats', authorize('agent'), getAgentStats);
 router.get('/admin-stats', authorize('admin'), getAdminDashboardStats);
 router.get('/', authorize('admin'), getApplications);
+router.get('/:id/files/:fileId', getApplicationFile);
+router.get('/:id/approved-doc', getApprovedDocFile);
 router.patch('/:id', authorize('admin'), upload.single('approvedDoc'), upload.validateBufferIntegrity, validate(schemas.updateApplicationStatus), updateApplicationStatus);
 router.patch('/:id/resubmit', authorize('agent'), upload.array('appFiles'), upload.validateBufferIntegrity, resubmitApplication);
 

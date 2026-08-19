@@ -15,7 +15,6 @@ const hpp = require('hpp');
 const compression = require('compression');
 const rateLimit = require('express-rate-limit');
 const connectDB = require('./config/db');
-const { testSupabaseConnection } = require('./config/supabase');
 
 // Validate required environment variables
 const requiredEnv = [
@@ -24,7 +23,11 @@ const requiredEnv = [
   'JWT_EXPIRE',
   'PORT',
   'NODE_ENV',
-  'RESEND_API_KEY'
+  'RESEND_API_KEY',
+  'AWS_REGION',
+  'AWS_ACCESS_KEY_ID',
+  'AWS_SECRET_ACCESS_KEY',
+  'AWS_S3_BUCKET'
 ];
 
 const missingEnv = requiredEnv.filter(env => !process.env[env]);
@@ -33,9 +36,12 @@ if (missingEnv.length > 0) {
   process.exit(1);
 }
 
+if (process.env.AWS_ACCESS_KEY_ID === 'YOUR_ACCESS_KEY_ID') {
+  console.warn('⚠️ Warning: AWS_ACCESS_KEY_ID is set to placeholder "YOUR_ACCESS_KEY_ID". S3 file uploads will fail until valid credentials are provided.');
+}
+
 // Connect to database
 connectDB();
-testSupabaseConnection();
 
 const app = express();
 app.set('trust proxy', 1); // Trust Railway's proxy for correct rate limiting IP detection

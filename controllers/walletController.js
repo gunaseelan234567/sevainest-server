@@ -5,7 +5,7 @@ const axios = require('axios');
 const sendEmail = require('../utils/sendEmail');
 const Settings = require('../models/Settings');
 const mongoose = require('mongoose');
-const { uploadToSupabase } = require('../utils/supabaseStorage');
+const { uploadFile, getSignedDownloadUrl, generateS3Key } = require('../utils/s3Storage');
 const { createNotification } = require('./notificationController');
 const logger = require('../utils/logger');
 
@@ -419,16 +419,25 @@ exports.submitOfflineRequest = async (req, res, next) => {
       return res.status(400).json({ message: 'Please upload a payment proof' });
     }
 
-    // Upload to Supabase and get the public URL
-    const publicUrl = await uploadToSupabase(req.file, 'proofs');
+    // Generate Request ID and upload to S3
+    const requestId = new mongoose.Types.ObjectId();
+    const uniqueKey = generateS3Key('wallet-proofs', requestId.toString(), req.file.originalname);
+    await uploadFile({
+      buffer: req.file.buffer,
+      key: uniqueKey,
+      contentType: req.file.mimetype
+    });
 
     const fundRequest = await FundRequest.create({
+      _id: requestId,
       agentId: req.user.id,
       amount,
       method: 'offline',
       status: 'pending',
       transactionId,
-      proofImage: publicUrl
+      proofImage: `api/wallet/proofs/${requestId}`, // Placeholder fallback
+      proofImageKey: uniqueKey,
+      storage: 's3'
     });
 
     res.status(201).json({ success: true, data: fundRequest });
@@ -445,7 +454,19 @@ exports.getFundRequests = async (req, res, next) => {
       .populate('processedBy', 'name')
       .sort('-createdAt');
 
-    res.status(200).json({ success: true, count: requests.length, data: requests });
+    const signedRequests = await Promise.all(requests.map(async reqst => {
+      const reqstObj = reqst.toObject();
+      if (reqstObj.storage === 's3' && reqstObj.proofImageKey) {
+        try {
+          reqstObj.proofImage = await getSignedDownloadUrl(reqstObj.proofImageKey, 900);
+        } catch (err) {
+          logger.error(`Failed to sign S3 proofImage: ${reqstObj.proofImageKey}`, err);
+        }
+      }
+      return reqstObj;
+    }));
+
+    res.status(200).json({ success: true, count: signedRequests.length, data: signedRequests });
   } catch (err) {
     next(err);
   }

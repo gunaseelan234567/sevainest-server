@@ -4,7 +4,8 @@ const AuditLog = require('../models/AuditLog');
 const WalletTransaction = require('../models/WalletTransaction');
 const fs = require('fs');
 const path = require('path');
-const { uploadToSupabase } = require('../utils/supabaseStorage');
+const mongoose = require('mongoose');
+const { uploadFile, getSignedDownloadUrl, generateS3Key } = require('../utils/s3Storage');
 
 // @desc    Get all PDFs
 // @route   GET /api/pdfs
@@ -12,10 +13,21 @@ const { uploadToSupabase } = require('../utils/supabaseStorage');
 exports.getPdfs = async (req, res, next) => {
   try {
     const pdfs = await Pdf.find().sort('-createdAt');
+    const signedPdfs = await Promise.all(pdfs.map(async pdf => {
+      const pdfObj = pdf.toObject();
+      if (pdfObj.storage === 's3' && pdfObj.imageKey) {
+        try {
+          pdfObj.imageUrl = await getSignedDownloadUrl(pdfObj.imageKey, 900);
+        } catch (err) {
+          console.error(`Failed to sign S3 pdf image: ${pdfObj.imageKey}`, err);
+        }
+      }
+      return pdfObj;
+    }));
     res.status(200).json({
       success: true,
-      count: pdfs.length,
-      data: pdfs
+      count: signedPdfs.length,
+      data: signedPdfs
     });
   } catch (err) {
     next(err);
@@ -28,15 +40,32 @@ exports.getPdfs = async (req, res, next) => {
 exports.createPdf = async (req, res, next) => {
   try {
     req.body.createdBy = req.user.id;
-
+    const pdfId = new mongoose.Types.ObjectId();
+    req.body._id = pdfId;
+    
     if (req.files && req.files.pdfFile) {
-      req.body.fileUrl = await uploadToSupabase(req.files.pdfFile[0], 'pdfs');
+      const uniqueKey = generateS3Key('pdfs', `${pdfId}/file`, req.files.pdfFile[0].originalname);
+      await uploadFile({
+        buffer: req.files.pdfFile[0].buffer,
+        key: uniqueKey,
+        contentType: req.files.pdfFile[0].mimetype
+      });
+      req.body.fileUrl = `api/pdfs/download-file/${pdfId}`; // Placeholder fallback
+      req.body.fileKey = uniqueKey;
+      req.body.storage = 's3';
     } else {
       return res.status(400).json({ message: 'Please upload a PDF file' });
     }
 
     if (req.files && req.files.pdfImage) {
-      req.body.imageUrl = await uploadToSupabase(req.files.pdfImage[0], 'pdfs');
+      const uniqueKey = generateS3Key('pdfs', `${pdfId}/image`, req.files.pdfImage[0].originalname);
+      await uploadFile({
+        buffer: req.files.pdfImage[0].buffer,
+        key: uniqueKey,
+        contentType: req.files.pdfImage[0].mimetype
+      });
+      req.body.imageUrl = `api/pdfs/images/${pdfId}`; // Placeholder fallback
+      req.body.imageKey = uniqueKey;
     }
 
     const pdf = await Pdf.create(req.body);
@@ -62,11 +91,26 @@ exports.updatePdf = async (req, res, next) => {
     }
 
     if (req.files && req.files.pdfFile) {
-      req.body.fileUrl = await uploadToSupabase(req.files.pdfFile[0], 'pdfs');
+      const uniqueKey = generateS3Key('pdfs', `${pdf._id}/file`, req.files.pdfFile[0].originalname);
+      await uploadFile({
+        buffer: req.files.pdfFile[0].buffer,
+        key: uniqueKey,
+        contentType: req.files.pdfFile[0].mimetype
+      });
+      req.body.fileUrl = `api/pdfs/download-file/${pdf._id}`;
+      req.body.fileKey = uniqueKey;
+      req.body.storage = 's3';
     }
 
     if (req.files && req.files.pdfImage) {
-      req.body.imageUrl = await uploadToSupabase(req.files.pdfImage[0], 'pdfs');
+      const uniqueKey = generateS3Key('pdfs', `${pdf._id}/image`, req.files.pdfImage[0].originalname);
+      await uploadFile({
+        buffer: req.files.pdfImage[0].buffer,
+        key: uniqueKey,
+        contentType: req.files.pdfImage[0].mimetype
+      });
+      req.body.imageUrl = `api/pdfs/images/${pdf._id}`;
+      req.body.imageKey = uniqueKey;
     }
 
     pdf = await Pdf.findByIdAndUpdate(req.params.id, req.body, {
@@ -189,9 +233,18 @@ exports.downloadPdf = async (req, res, next) => {
       balanceAfter: user.walletBalance
     });
 
+    let downloadUrl = pdf.fileUrl;
+    if (pdf.storage === 's3' && pdf.fileKey) {
+      try {
+        downloadUrl = await getSignedDownloadUrl(pdf.fileKey, 900); // 15 mins
+      } catch (err) {
+        console.error(`Failed to sign S3 download URL: ${pdf.fileKey}`, err);
+      }
+    }
+
     res.status(200).json({
       success: true,
-      fileUrl: pdf.fileUrl,
+      fileUrl: downloadUrl,
       message: 'Payment successful, downloading PDF...'
     });
   } catch (err) {

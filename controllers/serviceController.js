@@ -2,7 +2,8 @@ const Service = require('../models/Service');
 const AuditLog = require('../models/AuditLog');
 const fs = require('fs');
 const path = require('path');
-const { uploadToSupabase } = require('../utils/supabaseStorage');
+const mongoose = require('mongoose');
+const { uploadFile, getSignedDownloadUrl, generateS3Key } = require('../utils/s3Storage');
 
 // @desc    Get all active services
 // @route   GET /api/services
@@ -10,7 +11,18 @@ const { uploadToSupabase } = require('../utils/supabaseStorage');
 exports.getServices = async (req, res, next) => {
   try {
     const services = await Service.find({ status: 'active' });
-    res.status(200).json({ success: true, count: services.length, data: services });
+    const signedServices = await Promise.all(services.map(async srv => {
+      const srvObj = srv.toObject();
+      if (srvObj.storage === 's3' && srvObj.imageKey) {
+        try {
+          srvObj.imageUrl = await getSignedDownloadUrl(srvObj.imageKey, 900);
+        } catch (err) {
+          console.error(`Failed to sign S3 service image: ${srvObj.imageKey}`, err);
+        }
+      }
+      return srvObj;
+    }));
+    res.status(200).json({ success: true, count: signedServices.length, data: signedServices });
   } catch (err) {
     next(err);
   }
@@ -22,7 +34,18 @@ exports.getServices = async (req, res, next) => {
 exports.getAllServices = async (req, res, next) => {
   try {
     const services = await Service.find();
-    res.status(200).json({ success: true, data: services });
+    const signedServices = await Promise.all(services.map(async srv => {
+      const srvObj = srv.toObject();
+      if (srvObj.storage === 's3' && srvObj.imageKey) {
+        try {
+          srvObj.imageUrl = await getSignedDownloadUrl(srvObj.imageKey, 900);
+        } catch (err) {
+          console.error(`Failed to sign S3 service image: ${srvObj.imageKey}`, err);
+        }
+      }
+      return srvObj;
+    }));
+    res.status(200).json({ success: true, data: signedServices });
   } catch (err) {
     next(err);
   }
@@ -35,10 +58,20 @@ exports.createService = async (req, res, next) => {
   try {
     const serviceData = { ...req.body };
     serviceData.createdBy = req.user.id;
-
+    const serviceId = new mongoose.Types.ObjectId();
+    serviceData._id = serviceId;
+ 
     // Handle Image
     if (req.file) {
-      serviceData.imageUrl = await uploadToSupabase(req.file, 'services');
+      const uniqueKey = generateS3Key('services', serviceId.toString(), req.file.originalname);
+      await uploadFile({
+        buffer: req.file.buffer,
+        key: uniqueKey,
+        contentType: req.file.mimetype
+      });
+      serviceData.imageUrl = `api/services/images/${serviceId}`; // Placeholder fallback
+      serviceData.imageKey = uniqueKey;
+      serviceData.storage = 's3';
     }
 
     // Multer/FormData might stringify arrays
@@ -64,10 +97,18 @@ exports.updateService = async (req, res, next) => {
     }
 
     const updateData = { ...req.body };
-
+ 
     // Handle Image
     if (req.file) {
-      updateData.imageUrl = await uploadToSupabase(req.file, 'services');
+      const uniqueKey = generateS3Key('services', service._id.toString(), req.file.originalname);
+      await uploadFile({
+        buffer: req.file.buffer,
+        key: uniqueKey,
+        contentType: req.file.mimetype
+      });
+      updateData.imageUrl = `api/services/images/${service._id}`; // Placeholder fallback
+      updateData.imageKey = uniqueKey;
+      updateData.storage = 's3';
     }
 
     // Parse formFields if stringified

@@ -2,7 +2,8 @@ const Product = require('../models/Product');
 const AuditLog = require('../models/AuditLog');
 const fs = require('fs');
 const path = require('path');
-const { uploadToSupabase } = require('../utils/supabaseStorage');
+const mongoose = require('mongoose');
+const { uploadFile, getSignedDownloadUrl, generateS3Key } = require('../utils/s3Storage');
 
 // @desc    Get all products (Agent/Public)
 // @route   GET /api/products
@@ -10,10 +11,21 @@ const { uploadToSupabase } = require('../utils/supabaseStorage');
 exports.getProducts = async (req, res, next) => {
   try {
     const products = await Product.find({ status: 'active' }).sort('-createdAt');
+    const signedProducts = await Promise.all(products.map(async prod => {
+      const prodObj = prod.toObject();
+      if (prodObj.storage === 's3' && prodObj.imageKey) {
+        try {
+          prodObj.imageUrl = await getSignedDownloadUrl(prodObj.imageKey, 900);
+        } catch (err) {
+          console.error(`Failed to sign S3 product image: ${prodObj.imageKey}`, err);
+        }
+      }
+      return prodObj;
+    }));
     res.status(200).json({
       success: true,
-      count: products.length,
-      data: products
+      count: signedProducts.length,
+      data: signedProducts
     });
   } catch (err) {
     next(err);
@@ -26,10 +38,21 @@ exports.getProducts = async (req, res, next) => {
 exports.getAdminProducts = async (req, res, next) => {
   try {
     const products = await Product.find().sort('-createdAt');
+    const signedProducts = await Promise.all(products.map(async prod => {
+      const prodObj = prod.toObject();
+      if (prodObj.storage === 's3' && prodObj.imageKey) {
+        try {
+          prodObj.imageUrl = await getSignedDownloadUrl(prodObj.imageKey, 900);
+        } catch (err) {
+          console.error(`Failed to sign S3 product image: ${prodObj.imageKey}`, err);
+        }
+      }
+      return prodObj;
+    }));
     res.status(200).json({
       success: true,
-      count: products.length,
-      data: products
+      count: signedProducts.length,
+      data: signedProducts
     });
   } catch (err) {
     next(err);
@@ -42,9 +65,19 @@ exports.getAdminProducts = async (req, res, next) => {
 exports.createProduct = async (req, res, next) => {
   try {
     req.body.createdBy = req.user.id;
+    const productId = new mongoose.Types.ObjectId();
+    req.body._id = productId;
     
     if (req.file) {
-      req.body.imageUrl = await uploadToSupabase(req.file, 'products');
+      const uniqueKey = generateS3Key('products', productId.toString(), req.file.originalname);
+      await uploadFile({
+        buffer: req.file.buffer,
+        key: uniqueKey,
+        contentType: req.file.mimetype
+      });
+      req.body.imageUrl = `api/products/images/${productId}`; // Placeholder fallback
+      req.body.imageKey = uniqueKey;
+      req.body.storage = 's3';
     }
 
     const product = await Product.create(req.body);
@@ -70,7 +103,15 @@ exports.updateProduct = async (req, res, next) => {
     }
 
     if (req.file) {
-      req.body.imageUrl = await uploadToSupabase(req.file, 'products');
+      const uniqueKey = generateS3Key('products', product._id.toString(), req.file.originalname);
+      await uploadFile({
+        buffer: req.file.buffer,
+        key: uniqueKey,
+        contentType: req.file.mimetype
+      });
+      req.body.imageUrl = `api/products/images/${product._id}`; // Placeholder fallback
+      req.body.imageKey = uniqueKey;
+      req.body.storage = 's3';
     }
 
     product = await Product.findByIdAndUpdate(req.params.id, req.body, {

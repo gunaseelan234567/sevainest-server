@@ -1,5 +1,5 @@
 const Settings = require('../models/Settings');
-const { uploadToSupabase } = require('../utils/supabaseStorage');
+const { uploadFile, getSignedDownloadUrl, generateS3Key } = require('../utils/s3Storage');
 
 // Helper: get or create the singleton
 const getOrCreate = async () => {
@@ -21,6 +21,20 @@ exports.getSettings = async (req, res, next) => {
     const settingsObj = settings.toObject();
     if (!settingsObj.razorpayKeyId) settingsObj.razorpayKeyId = process.env.RAZORPAY_KEY_ID;
     if (!settingsObj.cashfreeAppId) settingsObj.cashfreeAppId = process.env.CASHFREE_APP_ID;
+
+    // Dynamically sign manualPaymentQR and welcomeImage S3 assets on fetch
+    if (settingsObj.storage === 's3') {
+      try {
+        if (settingsObj.manualPaymentQRKey) {
+          settingsObj.manualPaymentQR = await getSignedDownloadUrl(settingsObj.manualPaymentQRKey, 900);
+        }
+        if (settingsObj.welcomeImageKey) {
+          settingsObj.welcomeImage = await getSignedDownloadUrl(settingsObj.welcomeImageKey, 900);
+        }
+      } catch (err) {
+        console.error('Failed to sign S3 settings images:', err);
+      }
+    }
 
     // Filter sensitive data if not admin
     if (!req.user || req.user.role !== 'admin') {
@@ -60,14 +74,38 @@ exports.updateSettings = async (req, res, next) => {
 
     if (req.files) {
       if (req.files.manualPaymentQR) {
-        settings.manualPaymentQR = await uploadToSupabase(req.files.manualPaymentQR[0], 'settings');
+        const uniqueKey = generateS3Key('settings', 'qr', req.files.manualPaymentQR[0].originalname);
+        await uploadFile({
+          buffer: req.files.manualPaymentQR[0].buffer,
+          key: uniqueKey,
+          contentType: req.files.manualPaymentQR[0].mimetype
+        });
+        settings.manualPaymentQR = `api/settings/qr`; // Placeholder fallback
+        settings.manualPaymentQRKey = uniqueKey;
+        settings.storage = 's3';
       }
       if (req.files.welcomeImage) {
-        settings.welcomeImage = await uploadToSupabase(req.files.welcomeImage[0], 'settings');
+        const uniqueKey = generateS3Key('settings', 'welcome', req.files.welcomeImage[0].originalname);
+        await uploadFile({
+          buffer: req.files.welcomeImage[0].buffer,
+          key: uniqueKey,
+          contentType: req.files.welcomeImage[0].mimetype
+        });
+        settings.welcomeImage = `api/settings/welcome`; // Placeholder fallback
+        settings.welcomeImageKey = uniqueKey;
+        settings.storage = 's3';
       }
     } else if (req.file) {
       // Fallback for single file upload
-      settings.manualPaymentQR = await uploadToSupabase(req.file, 'settings');
+      const uniqueKey = generateS3Key('settings', 'qr', req.file.originalname);
+      await uploadFile({
+        buffer: req.file.buffer,
+        key: uniqueKey,
+        contentType: req.file.mimetype
+      });
+      settings.manualPaymentQR = `api/settings/qr`; // Placeholder fallback
+      settings.manualPaymentQRKey = uniqueKey;
+      settings.storage = 's3';
     }
 
     await settings.save();
