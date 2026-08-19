@@ -7,8 +7,9 @@ const { z } = require('zod');
 const validate = (schema) => (req, res, next) => {
   const result = schema.safeParse(req.body);
   if (!result.success) {
-    const errors = result.error.errors.map(e => `${e.path.join('.')}: ${e.message}`);
-    return res.status(400).json({ success: false, message: errors[0], errors });
+    const issues = result.error.issues || result.error.errors || [];
+    const errors = issues.map(e => `${e.path.join('.')}: ${e.message}`);
+    return res.status(400).json({ success: false, message: errors[0] || 'Validation failed', errors });
   }
   req.body = result.data; // Use sanitized/coerced data
   next();
@@ -67,11 +68,11 @@ const schemas = {
   }),
 
   onlineOrder: z.object({
-    amount: z.coerce.number({ invalid_type_error: 'Amount must be a number' }).min(50, 'Minimum wallet load amount is Rs.50'),
+    amount: z.coerce.number({ invalid_type_error: 'Amount must be a number' }).min(1, 'Amount must be at least Rs.1'),
   }),
 
   offlineRequest: z.object({
-    amount: z.coerce.number().min(50, 'Minimum wallet load amount is Rs.50'),
+    amount: z.coerce.number().min(1, 'Amount must be at least Rs.1'),
     transactionId: z.string().min(1, 'Please provide a transaction reference').trim(),
   }),
 

@@ -278,7 +278,10 @@ exports.verifyCashfreePayment = async (req, res) => {
     );
 
     if (response.data.order_status !== 'PAID') {
-      return res.status(400).json({ message: `Payment status: ${response.data.order_status}` });
+      return res.status(400).json({ 
+        message: `Payment was not completed. Status: ${response.data.order_status}`,
+        order_status: response.data.order_status
+      });
     }
 
     let fundRequest;
