@@ -144,12 +144,13 @@ exports.deletePdf = async (req, res, next) => {
 
     // Create success audit log
     await AuditLog.create({
-      action: 'ADMIN_DELETE_PDF',
-      targetType: 'pdf',
-      targetId: pdf._id,
-      performedBy: req.user.id,
+      adminId: req.user.id,
+      role: req.user.role || 'admin',
+      actionType: 'delete',
+      targetCollection: 'pdfs',
+      targetId: pdf._id.toString(),
       ipAddress: req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress || '',
-      status: 'success',
+      newData: { status: 'deleted' }
     });
 
     console.log(`[AUDIT] ADMIN_DELETE_PDF SUCCESS: ID: ${pdf._id} by Admin: ${req.user.id}`);
@@ -182,12 +183,13 @@ exports.restorePdf = async (req, res, next) => {
 
     // Create success audit log
     await AuditLog.create({
-      action: 'ADMIN_RESTORE_PDF',
-      targetType: 'pdf',
-      targetId: pdf._id,
-      performedBy: req.user.id,
+      adminId: req.user.id,
+      role: req.user.role || 'admin',
+      actionType: 'update',
+      targetCollection: 'pdfs',
+      targetId: pdf._id.toString(),
       ipAddress: req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress || '',
-      status: 'success',
+      newData: { status: 'restored' }
     });
 
     console.log(`[AUDIT] ADMIN_RESTORE_PDF SUCCESS: ID: ${pdf._id} by Admin: ${req.user.id}`);

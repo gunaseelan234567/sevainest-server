@@ -144,12 +144,13 @@ exports.deleteService = async (req, res, next) => {
 
     // Create success audit log
     await AuditLog.create({
-      action: 'ADMIN_DELETE_SERVICE',
-      targetType: 'service',
-      targetId: service._id,
-      performedBy: req.user.id,
+      adminId: req.user.id,
+      role: req.user.role || 'admin',
+      actionType: 'delete',
+      targetCollection: 'services',
+      targetId: service._id.toString(),
       ipAddress: req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress || '',
-      status: 'success',
+      newData: { status: 'deleted' }
     });
 
     console.log(`[AUDIT] ADMIN_DELETE_SERVICE SUCCESS: ID: ${service._id} by Admin: ${req.user.id}`);
@@ -178,12 +179,13 @@ exports.restoreService = async (req, res, next) => {
 
     // Create success audit log
     await AuditLog.create({
-      action: 'ADMIN_RESTORE_SERVICE',
-      targetType: 'service',
-      targetId: service._id,
-      performedBy: req.user.id,
+      adminId: req.user.id,
+      role: req.user.role || 'admin',
+      actionType: 'update',
+      targetCollection: 'services',
+      targetId: service._id.toString(),
       ipAddress: req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress || '',
-      status: 'success',
+      newData: { status: 'restored' }
     });
 
     console.log(`[AUDIT] ADMIN_RESTORE_SERVICE SUCCESS: ID: ${service._id} by Admin: ${req.user.id}`);

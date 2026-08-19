@@ -20,12 +20,10 @@ router.get('/', getServices);
 router.get('/all', authorize('admin'), getAllServices);
 router.put('/esevai-setup', authorize('admin'), bulkUpdateEsevaiStatus);
 router.post('/', authorize('admin'), upload.single('image'), createService);
-const criticalActionGuard = require('../middleware/criticalActionGuard');
-
 router
   .route('/:id')
   .put(authorize('admin'), upload.single('image'), updateService)
-  .delete(authorize('admin'), deleteRateLimiter, criticalActionGuard, verifyAdminDelete({ targetType: 'service', requireDoubleConfirm: true }), deleteService);
+  .delete(authorize('admin'), deleteRateLimiter, verifyAdminDelete({ targetType: 'service', requireDoubleConfirm: true }), deleteService);
 
 router.patch('/:id/restore', authorize('admin'), restoreService);
 
