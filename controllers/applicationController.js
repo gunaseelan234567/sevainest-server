@@ -411,7 +411,14 @@ exports.resubmitApplication = async (req, res, next) => {
     })) : [];
 
     if (newFiles.length > 0) {
-      application.uploadedFiles = newFiles;
+      const filesMap = {};
+      application.uploadedFiles.forEach(file => {
+        filesMap[file.fieldName] = file.toObject ? file.toObject() : file;
+      });
+      newFiles.forEach(file => {
+        filesMap[file.fieldName] = file;
+      });
+      application.uploadedFiles = Object.values(filesMap);
     }
 
     application.formData = formData;
@@ -442,16 +449,18 @@ exports.getAgentStats = async (req, res, next) => {
       submitted: 0,
       pending: 0,
       approved: 0,
-      rejected: 0
+      rejected: 0,
+      returned: 0
     };
 
     stats.forEach(s => {
       if (s._id === 'pending') formattedStats.pending = s.count;
       if (s._id === 'approved') formattedStats.approved = s.count;
       if (s._id === 'rejected') formattedStats.rejected = s.count;
+      if (s._id === 'returned') formattedStats.returned = s.count;
     });
 
-    formattedStats.submitted = formattedStats.pending + formattedStats.approved + formattedStats.rejected;
+    formattedStats.submitted = formattedStats.pending + formattedStats.approved + formattedStats.rejected + formattedStats.returned;
 
     res.status(200).json({ success: true, data: formattedStats });
   } catch (err) {
