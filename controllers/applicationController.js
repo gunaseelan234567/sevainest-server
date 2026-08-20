@@ -204,7 +204,7 @@ exports.getApplications = async (req, res, next) => {
     const [applications, total] = await Promise.all([
       Application.find(filter)
         .populate('serviceId', 'title category')
-        .populate('agentId', 'name email')
+        .populate('agentId', 'name email phone')
         .sort('-createdAt')
         .skip(skip)
         .limit(limit),

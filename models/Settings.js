@@ -48,6 +48,11 @@ const settingsSchema = new mongoose.Schema({
   welcomeImage: { type: String, default: '' },
   welcomeImageKey: { type: String, default: '' },
   storage: { type: String, default: 'supabase' },
+  categoryOrders: {
+    type: Map,
+    of: Number,
+    default: {}
+  },
 }, {
   timestamps: true
 });

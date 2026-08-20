@@ -19,6 +19,9 @@ exports.getSettings = async (req, res, next) => {
     
     // Merge public keys from .env if they are empty in DB
     const settingsObj = settings.toObject();
+    if (settings.categoryOrders) {
+      settingsObj.categoryOrders = Object.fromEntries(settings.categoryOrders);
+    }
     if (!settingsObj.razorpayKeyId) settingsObj.razorpayKeyId = process.env.RAZORPAY_KEY_ID;
     if (!settingsObj.cashfreeAppId) settingsObj.cashfreeAppId = process.env.CASHFREE_APP_ID;
 
@@ -63,7 +66,7 @@ exports.updateSettings = async (req, res, next) => {
       'agentRegistrationFee',
       'activePaymentGateway', 'razorpayKeyId', 'razorpayKeySecret',
       'cashfreeAppId', 'cashfreeSecretKey', 'cashfreeEnvironment',
-      'manualPaymentQR', 'upiId', 'welcomeText', 'welcomeImage'
+      'manualPaymentQR', 'upiId', 'welcomeText', 'welcomeImage', 'categoryOrders'
     ];
 
     allowed.forEach(field => {
@@ -109,7 +112,11 @@ exports.updateSettings = async (req, res, next) => {
     }
 
     await settings.save();
-    res.status(200).json({ success: true, data: settings });
+    const settingsObj = settings.toObject();
+    if (settings.categoryOrders) {
+      settingsObj.categoryOrders = Object.fromEntries(settings.categoryOrders);
+    }
+    res.status(200).json({ success: true, data: settingsObj });
   } catch (err) {
     next(err);
   }
