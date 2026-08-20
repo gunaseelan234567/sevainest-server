@@ -71,7 +71,12 @@ exports.updateSettings = async (req, res, next) => {
 
     allowed.forEach(field => {
       if (req.body[field] !== undefined) {
-        settings[field] = req.body[field];
+        if (field === 'categoryOrders') {
+          settings.set('categoryOrders', req.body.categoryOrders);
+          settings.markModified('categoryOrders');
+        } else {
+          settings[field] = req.body[field];
+        }
       }
     });
 
