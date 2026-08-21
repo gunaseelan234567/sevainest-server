@@ -10,34 +10,53 @@ const getOrCreate = async () => {
   return settings;
 };
 
+// Helper: format settings object for response with signed URLs
+const formatSettingsObj = async (settings) => {
+  const settingsObj = settings.toObject();
+  
+  if (settings.categoryOrders) {
+    settingsObj.categoryOrders = Object.fromEntries(settings.categoryOrders);
+  }
+
+  settingsObj.categoryImages = {};
+  if (settings.categoryImageKeys) {
+    for (const [catName, key] of settings.categoryImageKeys.entries()) {
+      if (key) {
+        try {
+          settingsObj.categoryImages[catName] = await getSignedDownloadUrl(key, 900);
+        } catch (err) {
+          console.error(`Failed to sign S3 category image for ${catName}:`, err);
+        }
+      }
+    }
+  }
+  
+  if (!settingsObj.razorpayKeyId) settingsObj.razorpayKeyId = process.env.RAZORPAY_KEY_ID;
+  if (!settingsObj.cashfreeAppId) settingsObj.cashfreeAppId = process.env.CASHFREE_APP_ID;
+
+  if (settingsObj.storage === 's3') {
+    try {
+      if (settingsObj.manualPaymentQRKey) {
+        settingsObj.manualPaymentQR = await getSignedDownloadUrl(settingsObj.manualPaymentQRKey, 900);
+      }
+      if (settingsObj.welcomeImageKey) {
+        settingsObj.welcomeImage = await getSignedDownloadUrl(settingsObj.welcomeImageKey, 900);
+      }
+    } catch (err) {
+      console.error('Failed to sign S3 settings images:', err);
+    }
+  }
+
+  return settingsObj;
+};
+
 // @desc    Get portal settings (public — agents need payment flags)
 // @route   GET /api/settings
 // @access  Private (any logged in user)
 exports.getSettings = async (req, res, next) => {
   try {
     const settings = await getOrCreate();
-    
-    // Merge public keys from .env if they are empty in DB
-    const settingsObj = settings.toObject();
-    if (settings.categoryOrders) {
-      settingsObj.categoryOrders = Object.fromEntries(settings.categoryOrders);
-    }
-    if (!settingsObj.razorpayKeyId) settingsObj.razorpayKeyId = process.env.RAZORPAY_KEY_ID;
-    if (!settingsObj.cashfreeAppId) settingsObj.cashfreeAppId = process.env.CASHFREE_APP_ID;
-
-    // Dynamically sign manualPaymentQR and welcomeImage S3 assets on fetch
-    if (settingsObj.storage === 's3') {
-      try {
-        if (settingsObj.manualPaymentQRKey) {
-          settingsObj.manualPaymentQR = await getSignedDownloadUrl(settingsObj.manualPaymentQRKey, 900);
-        }
-        if (settingsObj.welcomeImageKey) {
-          settingsObj.welcomeImage = await getSignedDownloadUrl(settingsObj.welcomeImageKey, 900);
-        }
-      } catch (err) {
-        console.error('Failed to sign S3 settings images:', err);
-      }
-    }
+    const settingsObj = await formatSettingsObj(settings);
 
     // Filter sensitive data if not admin
     if (!req.user || req.user.role !== 'admin') {
@@ -117,11 +136,47 @@ exports.updateSettings = async (req, res, next) => {
     }
 
     await settings.save();
-    const settingsObj = settings.toObject();
-    if (settings.categoryOrders) {
-      settingsObj.categoryOrders = Object.fromEntries(settings.categoryOrders);
-    }
+    const settingsObj = await formatSettingsObj(settings);
     res.status(200).json({ success: true, data: settingsObj });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// @desc    Upload Category Image
+// @route   POST /api/settings/category-image
+// @access  Private/Admin
+exports.uploadCategoryImage = async (req, res, next) => {
+  try {
+    const { categoryName } = req.body;
+    if (!categoryName) {
+      return res.status(400).json({ message: 'Category name is required' });
+    }
+    if (!req.file) {
+      return res.status(400).json({ message: 'Please upload an image file' });
+    }
+
+    const settings = await getOrCreate();
+    const sanitizedCat = categoryName.replace(/[^a-zA-Z0-9]/g, '_');
+    const uniqueKey = generateS3Key('settings/categories', sanitizedCat, req.file.originalname);
+
+    await uploadFile({
+      buffer: req.file.buffer,
+      key: uniqueKey,
+      contentType: req.file.mimetype
+    });
+
+    settings.set(`categoryImageKeys.${categoryName}`, uniqueKey);
+    settings.markModified('categoryImageKeys');
+    await settings.save();
+
+    const signedUrl = await getSignedDownloadUrl(uniqueKey, 900);
+
+    res.status(200).json({
+      success: true,
+      imageUrl: signedUrl,
+      categoryName
+    });
   } catch (err) {
     next(err);
   }

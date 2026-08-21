@@ -53,6 +53,11 @@ const settingsSchema = new mongoose.Schema({
     of: Number,
     default: {}
   },
+  categoryImageKeys: {
+    type: Map,
+    of: String,
+    default: {}
+  },
 }, {
   timestamps: true
 });

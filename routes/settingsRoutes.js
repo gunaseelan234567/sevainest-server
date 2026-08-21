@@ -1,5 +1,5 @@
 const express = require('express');
-const { getSettings, updateSettings } = require('../controllers/settingsController');
+const { getSettings, updateSettings, uploadCategoryImage } = require('../controllers/settingsController');
 const { protect, authorize } = require('../middleware/auth');
 const upload = require('../middleware/upload');
 
@@ -10,5 +10,7 @@ router.patch('/', protect, authorize('admin'), upload.fields([
   { name: 'manualPaymentQR', maxCount: 1 },
   { name: 'welcomeImage', maxCount: 1 }
 ]), updateSettings);
+
+router.post('/category-image', protect, authorize('admin'), upload.single('image'), uploadCategoryImage);
 
 module.exports = router;
