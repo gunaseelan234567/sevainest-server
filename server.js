@@ -139,6 +139,7 @@ app.get('/', (req, res) => {
 // Routes
 app.use('/api/auth', require('./routes/authRoutes'));
 app.use('/api/services', require('./routes/serviceRoutes'));
+app.use('/api/instant-services', require('./routes/instantServiceRoutes'));
 app.use('/api/applications', require('./routes/applicationRoutes'));
 app.use('/api/wallet', require('./routes/walletRoutes'));
 app.use('/api/notice', require('./routes/noticeRoutes'));

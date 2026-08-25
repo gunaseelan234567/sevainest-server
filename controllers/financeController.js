@@ -2,6 +2,7 @@ const Application = require('../models/Application');
 const Order = require('../models/Order');
 const WalletTransaction = require('../models/WalletTransaction');
 const User = require('../models/User');
+const InstantServiceTransaction = require('../models/InstantServiceTransaction');
 
 // @desc    Get Admin Finance Stats & Revenue
 // @route   GET /api/finance/stats
@@ -64,7 +65,13 @@ exports.getFinanceStats = async (req, res, next) => {
     ]);
     const pdfRevenue = pdfRevenueResult[0]?.total || 0;
 
-    const totalRevenue = serviceRevenue + productRevenue + pdfRevenue;
+    const instantServiceRevenueResult = await InstantServiceTransaction.aggregate([
+      { $match: { status: 'success', ...dateQuery } },
+      { $group: { _id: null, total: { $sum: '$amount' } } }
+    ]);
+    const instantServiceRevenue = instantServiceRevenueResult[0]?.total || 0;
+
+    const totalRevenue = serviceRevenue + productRevenue + pdfRevenue + instantServiceRevenue;
 
     // 2. Deposits (Credits) calculation
     const depositsResult = await WalletTransaction.aggregate([
@@ -117,11 +124,23 @@ exports.getFinanceStats = async (req, res, next) => {
       { $sort: { _id: 1 } }
     ]);
 
+    const monthlyInstantServices = await InstantServiceTransaction.aggregate([
+      { $match: { status: 'success', ...dateQuery } },
+      {
+        $group: {
+          _id: { $dateToString: { format: '%Y-%m', date: '$createdAt' } },
+          amount: { $sum: '$amount' }
+        }
+      },
+      { $sort: { _id: 1 } }
+    ]);
+
     // Align monthly data into a single array structure
     const monthsSet = new Set([
       ...monthlyServices.map(d => d._id),
       ...monthlyProducts.map(d => d._id),
-      ...monthlyPdfs.map(d => d._id)
+      ...monthlyPdfs.map(d => d._id),
+      ...monthlyInstantServices.map(d => d._id)
     ]);
     const monthsSorted = Array.from(monthsSet).sort();
 
@@ -129,12 +148,14 @@ exports.getFinanceStats = async (req, res, next) => {
       const sAmt = monthlyServices.find(d => d._id === month)?.amount || 0;
       const pAmt = monthlyProducts.find(d => d._id === month)?.amount || 0;
       const pdfAmt = monthlyPdfs.find(d => d._id === month)?.amount || 0;
+      const instantAmt = monthlyInstantServices.find(d => d._id === month)?.amount || 0;
       return {
         month,
         services: sAmt,
         products: pAmt,
         pdfs: pdfAmt,
-        total: sAmt + pAmt + pdfAmt
+        instantServices: instantAmt,
+        total: sAmt + pAmt + pdfAmt + instantAmt
       };
     });
 
@@ -166,6 +187,14 @@ exports.getFinanceStats = async (req, res, next) => {
       .populate('agentId', 'name email')
       .populate('serviceId', 'title chargeAmount');
 
+    const recentInstantServices = await InstantServiceTransaction.find({
+      status: 'success',
+      ...dateQuery
+    })
+      .sort('-createdAt')
+      .limit(30)
+      .populate('agentId', 'name email');
+
     res.status(200).json({
       success: true,
       data: {
@@ -174,6 +203,7 @@ exports.getFinanceStats = async (req, res, next) => {
           serviceRevenue,
           productRevenue,
           pdfRevenue,
+          instantServiceRevenue,
           totalDeposits,
           totalAgents
         },
@@ -181,7 +211,8 @@ exports.getFinanceStats = async (req, res, next) => {
         recentActivity: {
           wallet: recentWalletTransactions,
           orders: recentProductOrders,
-          applications: recentApplications
+          applications: recentApplications,
+          instantServices: recentInstantServices
         }
       }
     });

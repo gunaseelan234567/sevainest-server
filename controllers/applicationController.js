@@ -2,6 +2,7 @@ const Application = require('../models/Application');
 const Service = require('../models/Service');
 const User = require('../models/User');
 const WalletTransaction = require('../models/WalletTransaction');
+const InstantServiceTransaction = require('../models/InstantServiceTransaction');
 const sendEmail = require('../utils/sendEmail');
 const mongoose = require('mongoose');
 const { uploadFile, getSignedDownloadUrl, generateS3Key } = require('../utils/s3Storage');
@@ -492,6 +493,13 @@ exports.getAdminDashboardStats = async (req, res, next) => {
     // 4. All Applications Count
     const totalApplications = await Application.countDocuments();
 
+    // 4b. Instant Service Revenue (sum of successful transactions for the current month)
+    const instantServiceRevenueResult = await InstantServiceTransaction.aggregate([
+      { $match: { status: 'success', createdAt: { $gte: startOfMonth } } },
+      { $group: { _id: null, total: { $sum: '$amount' } } }
+    ]);
+    const instantServiceRevenue = instantServiceRevenueResult.length > 0 ? instantServiceRevenueResult[0].total : 0;
+
     // 5. Pie Chart Data (Status Breakdown)
     const statusStats = await Application.aggregate([
       { $group: { _id: '$status', value: { $sum: 1 } } }
@@ -561,7 +569,8 @@ exports.getAdminDashboardStats = async (req, res, next) => {
           totalAgents,
           pendingAgents,
           totalEarnings,
-          totalApplications
+          totalApplications,
+          instantServiceRevenue
         },
         pieData,
         chartData,
