@@ -13,7 +13,7 @@ const parameterSchema = new mongoose.Schema({
   },
   type: {
     type: String,
-    enum: ['text', 'number', 'date'],
+    enum: ['text', 'number', 'date', 'select'],
     default: 'text',
   },
   required: {
@@ -23,6 +23,10 @@ const parameterSchema = new mongoose.Schema({
   placeholder: {
     type: String,
     default: '',
+  },
+  options: {
+    type: [String],
+    default: [],
   },
 });
 
