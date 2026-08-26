@@ -83,6 +83,10 @@ exports.createInstantService = async (req, res, next) => {
       serviceData.parameters = JSON.parse(serviceData.parameters);
     }
 
+    if (typeof serviceData.responseFields === 'string') {
+      serviceData.responseFields = JSON.parse(serviceData.responseFields);
+    }
+
     if (serviceData.serviceAmount) {
       serviceData.serviceAmount = Number(serviceData.serviceAmount);
     }
@@ -146,6 +150,10 @@ exports.updateInstantService = async (req, res, next) => {
 
     if (typeof updateData.parameters === 'string') {
       updateData.parameters = JSON.parse(updateData.parameters);
+    }
+
+    if (typeof updateData.responseFields === 'string') {
+      updateData.responseFields = JSON.parse(updateData.responseFields);
     }
 
     if (updateData.serviceAmount !== undefined) {
@@ -380,7 +388,7 @@ exports.executeInstantService = async (req, res, next) => {
 // @access  Private/Agent
 exports.getAgentHistory = async (req, res, next) => {
   try {
-    const transactions = await InstantServiceTransaction.find({ agentId: req.user.id }).sort({ createdAt: -1 });
+    const transactions = await InstantServiceTransaction.find({ agentId: req.user.id }).populate('instantServiceId').sort({ createdAt: -1 });
     res.status(200).json({ success: true, count: transactions.length, data: transactions });
   } catch (err) {
     next(err);
@@ -392,7 +400,7 @@ exports.getAgentHistory = async (req, res, next) => {
 // @access  Private/Agent
 exports.getAgentHistoryDetail = async (req, res, next) => {
   try {
-    const transaction = await InstantServiceTransaction.findOne({ _id: req.params.id, agentId: req.user.id });
+    const transaction = await InstantServiceTransaction.findOne({ _id: req.params.id, agentId: req.user.id }).populate('instantServiceId');
     if (!transaction) {
       return res.status(404).json({ success: false, message: 'Transaction record not found' });
     }

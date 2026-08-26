@@ -26,6 +26,19 @@ const parameterSchema = new mongoose.Schema({
   },
 });
 
+const responseFieldSchema = new mongoose.Schema({
+  key: {
+    type: String,
+    required: [true, 'Response field key is required'],
+    trim: true,
+  },
+  label: {
+    type: String,
+    required: [true, 'Response field label is required'],
+    trim: true,
+  }
+});
+
 const instantServiceSchema = new mongoose.Schema({
   name: {
     type: String,
@@ -69,6 +82,7 @@ const instantServiceSchema = new mongoose.Schema({
     default: 'POST',
   },
   parameters: [parameterSchema],
+  responseFields: [responseFieldSchema],
   serviceAmount: {
     type: Number,
     required: [true, 'Please add a service amount'],
