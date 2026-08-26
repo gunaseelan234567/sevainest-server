@@ -525,6 +525,17 @@ exports.getAdminDashboardStats = async (req, res, next) => {
       { $sort: { _id: 1 } }
     ]);
 
+    const dailyInstantStats = await InstantServiceTransaction.aggregate([
+      { $match: { createdAt: { $gte: sevenDaysAgo } } },
+      {
+        $group: {
+          _id: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt" } },
+          instantServices: { $sum: 1 }
+        }
+      },
+      { $sort: { _id: 1 } }
+    ]);
+
     // Format dailyStats for frontend (ensuring all 7 days are present)
     const chartData = [];
     for (let i = 6; i >= 0; i--) {
@@ -533,10 +544,12 @@ exports.getAdminDashboardStats = async (req, res, next) => {
       const dateStr = d.toISOString().split('T')[0];
       const dayName = d.toLocaleDateString('en-US', { weekday: 'short' });
       
-      const found = dailyStats.find(s => s._id === dateStr);
+      const foundApp = dailyStats.find(s => s._id === dateStr);
+      const foundInstant = dailyInstantStats.find(s => s._id === dateStr);
       chartData.push({
         name: dayName,
-        apps: found ? found.apps : 0
+        apps: foundApp ? foundApp.apps : 0,
+        instantServices: foundInstant ? foundInstant.instantServices : 0
       });
     }
 
