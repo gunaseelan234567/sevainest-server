@@ -8,6 +8,34 @@ const neoapiClient = require('../services/neoapi/neoapiClient');
 const { uploadFile, getSignedDownloadUrl, generateS3Key } = require('../utils/s3Storage');
 const logger = require('../utils/logger');
 
+// Path resolution helper for nested results
+function resolvePath(obj, path) {
+  if (!obj || !path) return undefined;
+  const cleanPath = path.replace(/\[(\d+)\]/g, '.$1');
+  const parts = cleanPath.split('.');
+  let current = obj;
+  for (const part of parts) {
+    if (current === null || current === undefined) return undefined;
+    current = current[part];
+  }
+  return current;
+}
+
+// Path setter helper for nested results reconstruction
+function setPath(obj, path, value) {
+  const cleanPath = path.replace(/\[(\d+)\]/g, '.$1');
+  const parts = cleanPath.split('.');
+  let current = obj;
+  for (let i = 0; i < parts.length - 1; i++) {
+    const part = parts[i];
+    if (!current[part]) {
+      current[part] = isNaN(parts[i + 1]) ? {} : [];
+    }
+    current = current[part];
+  }
+  current[parts[parts.length - 1]] = value;
+}
+
 // Masking utility for security compliance (prevents saving full Aadhaar/PAN/Bank numbers)
 function maskSensitiveValue(value) {
   if (typeof value !== 'string') return value;
@@ -52,6 +80,44 @@ const signServiceImage = async (srv) => {
   return srvObj;
 };
 
+// Validate options schema for dynamic select parameter configurations
+const validateParameters = (parameters) => {
+  if (!Array.isArray(parameters)) return;
+  for (const param of parameters) {
+    if (param.type === 'select') {
+      if (!param.options || !Array.isArray(param.options) || param.options.length === 0) {
+        throw new Error(`Dropdown parameter '${param.label || param.name}' must contain at least one option.`);
+      }
+
+      const apiValues = new Set();
+      const labels = new Set();
+
+      for (const opt of param.options) {
+        if (!opt || typeof opt !== 'object') {
+          throw new Error(`Invalid option structure for parameter '${param.label || param.name}'.`);
+        }
+
+        const label = opt.label ? String(opt.label).trim() : '';
+        const value = opt.value ? String(opt.value).trim() : '';
+
+        if (!label || !value) {
+          throw new Error(`Option Display Label and API Value cannot be empty for parameter '${param.label || param.name}'.`);
+        }
+
+        if (apiValues.has(value)) {
+          throw new Error(`Duplicate API Value '${value}' for dropdown parameter '${param.label || param.name}'.`);
+        }
+        if (labels.has(label)) {
+          throw new Error(`Duplicate Display Label '${label}' for dropdown parameter '${param.label || param.name}'.`);
+        }
+
+        apiValues.add(value);
+        labels.add(label);
+      }
+    }
+  }
+};
+
 // ==========================================
 // ADMIN PORTAL CONTROLLERS
 // ==========================================
@@ -81,6 +147,10 @@ exports.createInstantService = async (req, res, next) => {
     // Multer/FormData might stringify arrays/JSON
     if (typeof serviceData.parameters === 'string') {
       serviceData.parameters = JSON.parse(serviceData.parameters);
+    }
+
+    if (serviceData.parameters) {
+      validateParameters(serviceData.parameters);
     }
 
     if (typeof serviceData.responseFields === 'string') {
@@ -150,6 +220,10 @@ exports.updateInstantService = async (req, res, next) => {
 
     if (typeof updateData.parameters === 'string') {
       updateData.parameters = JSON.parse(updateData.parameters);
+    }
+
+    if (updateData.parameters) {
+      validateParameters(updateData.parameters);
     }
 
     if (typeof updateData.responseFields === 'string') {
@@ -293,8 +367,18 @@ exports.executeInstantService = async (req, res, next) => {
       if (param.required && (val === undefined || val === null || val === '')) {
         return res.status(400).json({ success: false, message: `Field '${param.label}' is required.` });
       }
-      if (val !== undefined && val !== null) {
-        executionData[param.name] = val;
+      if (val !== undefined && val !== null && val !== '') {
+        const trimmedVal = String(val).trim();
+        if (param.type === 'select' && param.options && param.options.length > 0) {
+          const allowedValues = param.options.map(opt => (opt && typeof opt === 'object' ? opt.value : opt));
+          if (!allowedValues.includes(trimmedVal)) {
+            return res.status(400).json({
+              success: false,
+              message: `Invalid value selected for field '${param.label}'.`
+            });
+          }
+        }
+        executionData[param.name] = trimmedVal;
       }
     }
 
@@ -344,9 +428,92 @@ exports.executeInstantService = async (req, res, next) => {
       });
     }
 
-    // 7. Success logic: Commit and finalize transaction
+    // 7. Success logic: Process response fields, parse documents and save references
+    const { processDocument } = require('../services/file/documentProcessor');
+    const sanitizedResult = {};
+    const responseFields = service.responseFields || [];
+
+    for (const field of responseFields) {
+      const val = resolvePath(responsePayload, field.key);
+      if (val === undefined || val === null) {
+        continue;
+      }
+
+      if (['text', 'number', 'date'].includes(field.type)) {
+        setPath(sanitizedResult, field.key, val);
+      } else if (['file', 'image'].includes(field.type)) {
+        try {
+          const docRef = await processDocument({
+            transactionId: transaction._id,
+            providerField: field.key,
+            label: field.label,
+            configuredType: field.type,
+            configuredFileType: field.fileType,
+            value: val
+          });
+          setPath(sanitizedResult, field.key, docRef);
+        } catch (procErr) {
+          // Rollback wallet balance on document storage failure
+          await User.findByIdAndUpdate(req.user.id, { $inc: { walletBalance: service.serviceAmount } });
+
+          transaction.status = 'failed';
+          transaction.errorCode = 'FILE_PROCESSING_FAILED';
+          transaction.errorMessage = `Document processing failed for '${field.label}': ${procErr.message}`;
+          transaction.completedAt = new Date();
+          await transaction.save();
+
+          return res.status(502).json({
+            success: false,
+            message: transaction.errorMessage,
+            code: transaction.errorCode,
+          });
+        }
+      } else if (field.type === 'file_array') {
+        try {
+          if (!Array.isArray(val)) {
+            throw new Error(`Expected array for file_array type field '${field.key}'`);
+          }
+          const refs = [];
+          for (let idx = 0; idx < val.length; idx++) {
+            const valItem = val[idx];
+            let fileVal = valItem;
+            if (typeof valItem === 'object' && valItem !== null) {
+              fileVal = valItem.base64 || valItem.url || valItem.value || valItem.data || valItem;
+            }
+
+            const docRef = await processDocument({
+              transactionId: transaction._id,
+              providerField: `${field.key}[${idx}]`,
+              label: `${field.label} - Part ${idx + 1}`,
+              configuredType: 'file',
+              configuredFileType: field.fileType,
+              value: fileVal
+            });
+            refs.push(docRef);
+          }
+          setPath(sanitizedResult, field.key, refs);
+        } catch (procErr) {
+          // Rollback wallet balance
+          await User.findByIdAndUpdate(req.user.id, { $inc: { walletBalance: service.serviceAmount } });
+
+          transaction.status = 'failed';
+          transaction.errorCode = 'FILE_PROCESSING_FAILED';
+          transaction.errorMessage = `Array document processing failed for '${field.label}': ${procErr.message}`;
+          transaction.completedAt = new Date();
+          await transaction.save();
+
+          return res.status(502).json({
+            success: false,
+            message: transaction.errorMessage,
+            code: transaction.errorCode,
+          });
+        }
+      }
+    }
+
     transaction.status = 'success';
-    transaction.result = maskSensitiveData(responsePayload);
+    // Store sanitizedResult instead of raw base64 or URL strings
+    transaction.result = maskSensitiveData(sanitizedResult);
     transaction.providerReference = responsePayload.referenceId || '';
     transaction.completedAt = new Date();
     await transaction.save();
@@ -364,7 +531,7 @@ exports.executeInstantService = async (req, res, next) => {
     res.status(200).json({
       success: true,
       message: 'Service executed successfully',
-      data: responsePayload.data || responsePayload,
+      data: sanitizedResult,
       transactionId: transaction._id,
     });
   } catch (err) {
@@ -567,6 +734,53 @@ exports.deleteCategory = async (req, res, next) => {
     });
 
     res.status(200).json({ success: true, message: 'Category deleted successfully' });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// @desc    Get authorized temporary presigned S3 download URL for a transaction file
+// @route   GET /api/instant-services/transactions/:transactionId/files/:fileId
+// @access  Private
+exports.getTransactionFile = async (req, res, next) => {
+  try {
+    const InstantServiceFile = require('../models/InstantServiceFile');
+    const { transactionId, fileId } = req.params;
+
+    // 1. Fetch file record
+    const fileRecord = await InstantServiceFile.findById(fileId);
+    if (!fileRecord) {
+      return res.status(404).json({ success: false, message: 'File record not found' });
+    }
+
+    // 2. Verify file belongs to transaction
+    if (fileRecord.transactionId.toString() !== transactionId) {
+      return res.status(400).json({ success: false, message: 'File does not belong to this transaction' });
+    }
+
+    // 3. Fetch transaction
+    const transaction = await InstantServiceTransaction.findById(transactionId);
+    if (!transaction) {
+      return res.status(404).json({ success: false, message: 'Transaction not found' });
+    }
+
+    // 4. Authorize agent or admin access
+    const isOwner = transaction.agentId.toString() === req.user.id;
+    const isAdmin = req.user.role === 'admin';
+
+    if (!isOwner && !isAdmin) {
+      return res.status(403).json({ success: false, message: 'You are not authorized to access this file' });
+    }
+
+    // 5. Generate presigned GET URL (expires in 120 seconds)
+    const expiresIn = 120;
+    const presignedUrl = await getSignedDownloadUrl(fileRecord.storageKey, expiresIn);
+
+    res.status(200).json({
+      success: true,
+      url: presignedUrl,
+      expiresIn
+    });
   } catch (err) {
     next(err);
   }

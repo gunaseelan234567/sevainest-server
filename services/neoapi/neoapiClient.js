@@ -31,6 +31,125 @@ exports.executeService = async (endpoint, method = 'POST', data = {}) => {
 
     // Dynamic mock response based on the endpoint
     const urlLower = url.toLowerCase();
+    
+    // Testing endpoints for dynamic file mapping engine
+    if (urlLower.includes('mock/data-uri-pdf')) {
+      return {
+        success: true,
+        referenceId: `MOCK-DURIPDF-${Date.now()}`,
+        data: {
+          document: 'data:application/pdf;base64,JVBERi0xLjQKJVRlc3QgUERGCjEgMCBvYmoKPDwgL1R5cGUgL0NhdGFsb2cgL1BhZ2VzIDIgMCBSID4+CmVuZG9iagoyIDAgb2JqCjw8IC9UeXBlIC9QYWdlcyAvS2lkcyBbIDMgMCBSIF0gL0NvdW50IDEgPj4KZW5kb2JqCjMgMCBvYmoKPDwgL1R5cGUgL1BhZ2UgL1BhcmVudCAyIDAgUiAvTWVkaWFCb3ggWyAwIDAgNjEyIDc5MiBdID4+CmVuZG9iagp4cmVmCjAgNAowMDAwMDAwMDAwIDY1NTM1IGYgCjAwMDAwMDAwMTUgMDAwMDAgbiAKMDAwMDAwMDA2MCAwMDAwMCBuIAowMDAwMDAwMTE1IDAwMDAwIG4gCnRyYWlsZXIKPDwgL1NpemUgNCAvUm9vdCAxIDAgUiA+PgpzdGFydHhyZWYKMTgwCiUlRU9GCg=='
+        }
+      };
+    }
+
+    if (urlLower.includes('mock/raw-base64-pdf')) {
+      return {
+        success: true,
+        referenceId: `MOCK-RAWPDF-${Date.now()}`,
+        data: {
+          document: 'JVBERi0xLjQKJVRlc3QgUERGCjEgMCBvYmoKPDwgL1R5cGUgL0NhdGFsb2cgL1BhZ2VzIDIgMCBSID4+CmVuZG9iagoyIDAgb2JqCjw8IC9UeXBlIC9QYWdlcyAvS2lkcyBbIDMgMCBSIF0gL0NvdW50IDEgPj4KZW5kb2JqCjMgMCBvYmoKPDwgL1R5cGUgL1BhZ2UgL1BhcmVudCAyIDAgUiAvTWVkaWFCb3ggWyAwIDAgNjEyIDc5MiBdID4+CmVuZG9iagp4cmVmCjAgNAowMDAwMDAwMDAwIDY1NTM1IGYgCjAwMDAwMDAwMTUgMDAwMDAgbiAKMDAwMDAwMDA2MCAwMDAwMCBuIAowMDAwMDAwMTE1IDAwMDAwIG4gCnRyYWlsZXIKPDwgL1NpemUgNCAvUm9vdCAxIDAgUiA+PgpzdGFydHhyZWYKMTgwCiUlRU9GCg=='
+        }
+      };
+    }
+
+    if (urlLower.includes('mock/jpeg-data-uri')) {
+      return {
+        success: true,
+        referenceId: `MOCK-JPEG-${Date.now()}`,
+        data: {
+          photo: 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA='
+        }
+      };
+    }
+
+    if (urlLower.includes('mock/remote-pdf-url')) {
+      return {
+        success: true,
+        referenceId: `MOCK-URLPDF-${Date.now()}`,
+        data: {
+          documentUrl: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf-test.pdf'
+        }
+      };
+    }
+
+    if (urlLower.includes('mock/file-array')) {
+      return {
+        success: true,
+        referenceId: `MOCK-ARRAY-${Date.now()}`,
+        data: {
+          documents: [
+            'data:application/pdf;base64,JVBERi0xLjQKJVRlc3QgUERGCjEgMCBvYmoKPDwgL1R5cGUgL0NhdGFsb2cgL1BhZ2VzIDIgMCBSID4+CmVuZG9iagoyIDAgb2JqCjw8IC9UeXBlIC9QYWdlcyAvS2lkcyBbIDMgMCBSIF0gL0NvdW50IDEgPj4KZW5kb2JqCjMgMCBvYmoKPDwgL1R5cGUgL1BhZ2UgL1BhcmVudCAyIDAgUiAvTWVkaWFCb3ggWyAwIDAgNjEyIDc5MiBdID4+CmVuZG9iagp4cmVmCjAgNAowMDAwMDAwMDAwIDY1NTM1IGYgCjAwMDAwMDAwMTUgMDAwMDAgbiAKMDAwMDAwMDA2MCAwMDAwMCBuIAowMDAwMDAwMTE1IDAwMDAwIG4gCnRyYWlsZXIKPDwgL1NpemUgNCAvUm9vdCAxIDAgUiA+PgpzdGFydHhyZWYKMTgwCiUlRU9GCg==',
+            'data:application/pdf;base64,JVBERi0xLjQKJVRlc3QgUERGCjEgMCBvYmoKPDwgL1R5cGUgL0NhdGFsb2cgL1BhZ2VzIDIgMCBSID4+CmVuZG9iagoyIDAgb2JqCjw8IC9UeXBlIC9QYWdlcyAvS2lkcyBbIDMgMCBSIF0gL0NvdW50IDEgPj4KZW5kb2JqCjMgMCBvYmoKPDwgL1R5cGUgL1BhZ2UgL1BhcmVudCAyIDAgUiAvTWVkaWFCb3ggWyAwIDAgNjEyIDc5MiBdID4+CmVuZG9iagp4cmVmCjAgNAowMDAwMDAwMDAwIDY1NTM1IGYgCjAwMDAwMDAwMTUgMDAwMDAgbiAKMDAwMDAwMDA2MCAwMDAwMCBuIAowMDAwMDAwMTE1IDAwMDAwIG4gCnRyYWlsZXIKPDwgL1NpemUgNCAvUm9vdCAxIDAgUiA+PgpzdGFydHhyZWYKMTgwCiUlRU9GCg=='
+          ]
+        }
+      };
+    }
+
+    if (urlLower.includes('mock/nested-document')) {
+      return {
+        success: true,
+        referenceId: `MOCK-NESTED-${Date.now()}`,
+        data: {
+          data: {
+            certificate: 'data:application/pdf;base64,JVBERi0xLjQKJVRlc3QgUERGCjEgMCBvYmoKPDwgL1R5cGUgL0NhdGFsb2cgL1BhZ2VzIDIgMCBSID4+CmVuZG9iagoyIDAgb2JqCjw8IC9UeXBlIC9QYWdlcyAvS2lkcyBbIDMgMCBSIF0gL0NvdW50IDEgPj4KZW5kb2JqCjMgMCBvYmoKPDwgL1R5cGUgL1BhZ2UgL1BhcmVudCAyIDAgUiAvTWVkaWFCb3ggWyAwIDAgNjEyIDc5MiBdID4+CmVuZG9iagp4cmVmCjAgNAowMDAwMDAwMDAwIDY1NTM1IGYgCjAwMDAwMDAwMTUgMDAwMDAgbiAKMDAwMDAwMDA2MCAwMDAwMCBuIAowMDAwMDAwMTE1IDAwMDAwIG4gCnRyYWlsZXIKPDwgL1NpemUgNCAvUm9vdCAxIDAgUiA+PgpzdGFydHhyZWYKMTgwCiUlRU9GCg=='
+          }
+        }
+      };
+    }
+
+    if (urlLower.includes('mock/invalid-base64')) {
+      return {
+        success: true,
+        referenceId: `MOCK-INVBASE-${Date.now()}`,
+        data: {
+          document: 'not-base64-content!!'
+        }
+      };
+    }
+
+    if (urlLower.includes('mock/unsupported-format')) {
+      return {
+        success: true,
+        referenceId: `MOCK-UNSUPPORTED-${Date.now()}`,
+        data: {
+          document: 'data:text/plain;base64,aGVsbG8gd29ybGQ='
+        }
+      };
+    }
+
+    if (urlLower.includes('mock/oversized-document')) {
+      // Large array buffer simulation
+      return {
+        success: true,
+        referenceId: `MOCK-OVERSIZE-${Date.now()}`,
+        data: {
+          document: 'data:application/pdf;base64,' + 'A'.repeat(1024 * 1024 * 15) // ~15MB base64 string
+        }
+      };
+    }
+
+    if (urlLower.includes('mock/wrong-signature')) {
+      return {
+        success: true,
+        referenceId: `MOCK-WRONGSIG-${Date.now()}`,
+        data: {
+          document: 'data:application/pdf;base64,aGVsbG8gd29ybGQ=' // Configured as PDF, but binary is "hello world" plain text
+        }
+      };
+    }
+
+    if (urlLower.includes('mock/multiple-mixed')) {
+      return {
+        success: true,
+        referenceId: `MOCK-MIXED-${Date.now()}`,
+        data: {
+          document: 'data:application/pdf;base64,JVBERi0xLjQKJVRlc3QgUERGCjEgMCBvYmoKPDwgL1R5cGUgL0NhdGFsb2cgL1BhZ2VzIDIgMCBSID4+CmVuZG9iagoyIDAgb2JqCjw8IC9UeXBlIC9QYWdlcyAvS2lkcyBbIDMgMCBSIF0gL0NvdW50IDEgPj4KZW5kb2JqCjMgMCBvYmoKPDwgL1R5cGUgL1BhZ2UgL1BhcmVudCAyIDAgUiAvTWVkaWFCb3ggWyAwIDAgNjEyIDc5MiBdID4+CmVuZG9iagp4cmVmCjAgNAowMDAwMDAwMDAwIDY1NTM1IGYgCjAwMDAwMDAwMTUgMDAwMDAgbiAKMDAwMDAwMDA2MCAwMDAwMCBuIAowMDAwMDAwMTE1IDAwMDAwIG4gCnRyYWlsZXIKPDwgL1NpemUgNCAvUm9vdCAxIDAgUiA+PgpzdGFydHhyZWYKMTgwCiUlRU9GCg==',
+          photo: 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA='
+        }
+      };
+    }
+
     if (urlLower.includes('aadhaar')) {
       const aadhaarNum = data.aadhaar || data.aadhaarNo || data.aadhaarNumber || '123456789012';
       return {

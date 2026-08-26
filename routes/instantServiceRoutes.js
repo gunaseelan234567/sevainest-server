@@ -13,6 +13,7 @@ const {
   createCategory,
   updateCategory,
   deleteCategory,
+  getTransactionFile,
 } = require('../controllers/instantServiceController');
 const { protect, authorize } = require('../middleware/auth');
 const { deleteRateLimiter, verifyAdminDelete } = require('../middleware/deleteGuard');
@@ -21,6 +22,9 @@ const upload = require('../middleware/upload');
 const router = express.Router();
 
 router.use(protect);
+
+// File Download Access Route
+router.get('/transactions/:transactionId/files/:fileId', getTransactionFile);
 
 // Categories Routes
 router.get('/categories/all', getCategories);

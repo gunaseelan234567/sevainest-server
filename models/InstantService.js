@@ -25,7 +25,7 @@ const parameterSchema = new mongoose.Schema({
     default: '',
   },
   options: {
-    type: [String],
+    type: mongoose.Schema.Types.Mixed,
     default: [],
   },
 });
@@ -40,6 +40,16 @@ const responseFieldSchema = new mongoose.Schema({
     type: String,
     required: [true, 'Response field label is required'],
     trim: true,
+  },
+  type: {
+    type: String,
+    enum: ['text', 'number', 'date', 'image', 'file', 'file_array'],
+    default: 'text',
+  },
+  fileType: {
+    type: String,
+    enum: ['pdf', 'jpeg', 'png', 'gif', 'image', ''],
+    default: '',
   }
 });
 
