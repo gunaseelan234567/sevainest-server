@@ -1031,3 +1031,95 @@ exports.updateUserPermissions = async (req, res, next) => {
   }
 };
 
+// @desc    Update user/agent details (Admin only)
+// @route   PUT /api/auth/user/:id
+// @access  Private/Admin
+exports.updateUser = async (req, res, next) => {
+  try {
+    const { name, email, phone, shopAddress, paymentMode, status, password } = req.body;
+    const user = await User.findById(req.params.id);
+
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    // Check if email is being changed and if it's already taken
+    if (email && email.toLowerCase() !== user.email.toLowerCase()) {
+      const existingUser = await User.findOne({ email: email.toLowerCase(), _id: { $ne: user._id } });
+      if (existingUser) {
+        return res.status(400).json({ success: false, message: 'Email address is already in use by another account' });
+      }
+    }
+
+    const { logAdminAction } = require('../utils/auditLogger');
+    const oldData = {
+      name: user.name,
+      email: user.email,
+      phone: user.phone,
+      shopAddress: user.shopAddress,
+      paymentMode: user.paymentMode,
+      status: user.status,
+      isActivated: user.isActivated,
+      agentId: user.agentId,
+    };
+
+    if (name !== undefined) user.name = name;
+    if (email !== undefined) user.email = email.toLowerCase();
+    if (phone !== undefined) user.phone = phone;
+    if (shopAddress !== undefined) user.shopAddress = shopAddress;
+    if (paymentMode !== undefined) user.paymentMode = paymentMode;
+
+    if (status !== undefined) {
+      user.status = status;
+      if (status === 'active') {
+        user.isActivated = true;
+        if (!user.agentId && user.role === 'agent') {
+          user.agentId = await generateAgentId();
+        }
+      } else if (status === 'pending' || status === 'rejected' || status === 'blocked') {
+        user.isActivated = false;
+      }
+    }
+
+    if (password && password.trim().length >= 6) {
+      user.password = password;
+    }
+
+    await user.save();
+
+    const newData = {
+      name: user.name,
+      email: user.email,
+      phone: user.phone,
+      shopAddress: user.shopAddress,
+      paymentMode: user.paymentMode,
+      status: user.status,
+      isActivated: user.isActivated,
+      agentId: user.agentId,
+    };
+
+    await logAdminAction({
+      adminId: req.user._id,
+      role: req.user.role,
+      actionType: 'update',
+      targetCollection: 'users',
+      targetId: user._id.toString(),
+      oldData,
+      newData,
+      req
+    });
+
+    const updatedUserObj = user.toObject();
+    delete updatedUserObj.password;
+
+    res.status(200).json({
+      success: true,
+      message: 'Agent details updated successfully',
+      data: updatedUserObj
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+
