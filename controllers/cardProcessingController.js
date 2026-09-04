@@ -339,6 +339,10 @@ exports.uploadSample = async (req, res, next) => {
       },
     });
   } catch (err) {
+    logger.error('Error uploading sample PDF:', err);
+    if (err.message && (err.message.includes('password') || err.message.includes('encrypted') || err.message.includes('Invalid PDF') || err.message.includes('corrupt'))) {
+      return res.status(400).json({ success: false, message: err.message });
+    }
     next(err);
   }
 };

@@ -55,6 +55,8 @@ const allowedOrigins = [
   // sevainest.in (single-T) — legacy / alternate
   'https://www.sevainest.in',
   'https://sevainest.in',
+  'https://api.sevainest.in',
+  'https://api.sevainestt.in',
   'https://sevainest.vercel.app',
   'http://localhost:5173',
   'http://localhost:3000'
@@ -63,15 +65,19 @@ const allowedOrigins = [
 
 console.log('✅ Allowed Origins:', allowedOrigins);
 
-app.use(cors({
+const isOriginAllowed = (origin) => {
+  if (!origin) return true;
+  const normalized = origin.replace(/\/$/, '');
+  if (allowedOrigins.includes(normalized)) return true;
+  if (/^https?:\/\/([a-z0-9-]+\.)?sevainest(t)?\.in(:\d+)?$/i.test(normalized)) return true;
+  if (/^https?:\/\/([a-z0-9-]+\.)?vercel\.app$/i.test(normalized)) return true;
+  if (/^http:\/\/localhost(:\d+)?$/i.test(normalized)) return true;
+  return false;
+};
+
+const corsOptions = {
   origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
-
-    // Normalize origin by removing trailing slash for comparison
-    const normalizedOrigin = origin.replace(/\/$/, '');
-
-    if (allowedOrigins.includes(normalizedOrigin)) {
+    if (!origin || isOriginAllowed(origin)) {
       return callback(null, true);
     } else {
       console.log(`❌ CORS Blocked for origin: ${origin}`);
@@ -82,7 +88,10 @@ app.use(cors({
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'x-critical-action-token'],
   exposedHeaders: ['Set-Cookie']
-}));
+};
+
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 
 // Middleware
 app.use(express.json({ limit: '10mb' }));
@@ -204,6 +213,12 @@ app.use((err, req, res, next) => {
   }
 
   const statusCode = res.statusCode === 200 ? 500 : res.statusCode;
+
+  const origin = req.headers.origin;
+  if (origin && isOriginAllowed(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+  }
 
   res.status(statusCode).json({
     success: false,
