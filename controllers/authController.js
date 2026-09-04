@@ -100,19 +100,23 @@ const generateAgentId = async () => {
 // @access  Private/Admin
 exports.register = async (req, res, next) => {
   try {
-    const { name, email, password, role, phone, shopAddress } = req.body;
+    const { name, email, password, role, phone, shopAddress, paymentMode, status } = req.body;
 
-    // Create user (Admins are pre-activated)
+    const userRole = role || 'agent';
+    const targetStatus = status || 'active';
+    const isActivated = targetStatus === 'active';
+
     const user = await User.create({
       name,
       email,
       password,
-      role: role || 'agent',
+      role: userRole,
       phone,
       shopAddress,
-      isActivated: true,
-      status: 'active',
-      agentId: role === 'agent' ? await generateAgentId() : undefined
+      paymentMode: paymentMode || 'offline',
+      isActivated,
+      status: targetStatus,
+      agentId: userRole === 'agent' ? await generateAgentId() : undefined
     });
 
     sendTokenResponse(user, 201, res);
@@ -1031,91 +1035,61 @@ exports.updateUserPermissions = async (req, res, next) => {
   }
 };
 
-// @desc    Update user/agent details (Admin only)
+// @desc    Update user details (Admin only)
 // @route   PUT /api/auth/user/:id
 // @access  Private/Admin
 exports.updateUser = async (req, res, next) => {
   try {
-    const { name, email, phone, shopAddress, paymentMode, status, password } = req.body;
-    const user = await User.findById(req.params.id);
-
+    const { name, email, phone, shopAddress, paymentMode, status, agentId, password } = req.body;
+    
+    const user = await User.findById(req.params.id).select('+password');
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    // Check if email is being changed and if it's already taken
     if (email && email.toLowerCase() !== user.email.toLowerCase()) {
-      const existingUser = await User.findOne({ email: email.toLowerCase(), _id: { $ne: user._id } });
-      if (existingUser) {
-        return res.status(400).json({ success: false, message: 'Email address is already in use by another account' });
+      const existingEmail = await User.findOne({ email: email.toLowerCase() });
+      if (existingEmail && existingEmail._id.toString() !== user._id.toString()) {
+        return res.status(400).json({ success: false, message: 'An account with this email already exists' });
       }
+      user.email = email.toLowerCase();
     }
 
-    const { logAdminAction } = require('../utils/auditLogger');
-    const oldData = {
-      name: user.name,
-      email: user.email,
-      phone: user.phone,
-      shopAddress: user.shopAddress,
-      paymentMode: user.paymentMode,
-      status: user.status,
-      isActivated: user.isActivated,
-      agentId: user.agentId,
-    };
+    if (agentId && agentId !== user.agentId) {
+      const existingAgentId = await User.findOne({ agentId });
+      if (existingAgentId && existingAgentId._id.toString() !== user._id.toString()) {
+        return res.status(400).json({ success: false, message: 'Agent ID already in use' });
+      }
+      user.agentId = agentId;
+    }
 
     if (name !== undefined) user.name = name;
-    if (email !== undefined) user.email = email.toLowerCase();
     if (phone !== undefined) user.phone = phone;
     if (shopAddress !== undefined) user.shopAddress = shopAddress;
     if (paymentMode !== undefined) user.paymentMode = paymentMode;
-
     if (status !== undefined) {
       user.status = status;
       if (status === 'active') {
         user.isActivated = true;
-        if (!user.agentId && user.role === 'agent') {
+        if (!user.agentId) {
           user.agentId = await generateAgentId();
         }
-      } else if (status === 'pending' || status === 'rejected' || status === 'blocked') {
+      } else {
         user.isActivated = false;
       }
     }
-
     if (password && password.trim().length >= 6) {
       user.password = password;
     }
 
     await user.save();
 
-    const newData = {
-      name: user.name,
-      email: user.email,
-      phone: user.phone,
-      shopAddress: user.shopAddress,
-      paymentMode: user.paymentMode,
-      status: user.status,
-      isActivated: user.isActivated,
-      agentId: user.agentId,
-    };
-
-    await logAdminAction({
-      adminId: req.user._id,
-      role: req.user.role,
-      actionType: 'update',
-      targetCollection: 'users',
-      targetId: user._id.toString(),
-      oldData,
-      newData,
-      req
-    });
-
-    const updatedUserObj = user.toObject();
-    delete updatedUserObj.password;
+    const updatedUser = await User.findById(user._id).select('-password');
 
     res.status(200).json({
       success: true,
       message: 'Agent details updated successfully',
-      data: updatedUserObj
+      data: updatedUser
     });
   } catch (err) {
     next(err);

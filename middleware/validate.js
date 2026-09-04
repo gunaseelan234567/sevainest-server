@@ -29,6 +29,8 @@ const schemas = {
     role: z.enum(['admin', 'agent']).optional().default('agent'),
     phone: z.string().optional(),
     shopAddress: z.string().optional(),
+    paymentMode: z.enum(['online', 'offline', 'free', 'none']).optional(),
+    status: z.enum(['pending', 'active', 'rejected', 'blocked']).optional(),
   }),
 
   registerAgent: z.object({

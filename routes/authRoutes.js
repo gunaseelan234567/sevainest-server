@@ -24,7 +24,6 @@ const {
   updateUserPermissions,
   updateUser,
 } = require('../controllers/authController');
-
 const { protect, authorize } = require('../middleware/auth');
 const { deleteRateLimiter, verifyAdminDelete } = require('../middleware/deleteGuard');
 const { validate, schemas } = require('../middleware/validate');
@@ -44,6 +43,7 @@ router.post('/verify-email', protect, validate(schemas.verifyEmail), verifyEmail
 router.get('/users', protect, authorize('admin'), getUsers);
 
 router.put('/user/:id', protect, authorize('admin'), updateUser);
+router.put('/users/:id', protect, authorize('admin'), updateUser);
 router.patch('/activate/:id', protect, authorize('admin'), activateAgent);
 router.patch('/reject/:id', protect, authorize('admin'), rejectAgent);
 router.delete('/user/:id', protect, authorize('admin'), deleteRateLimiter, verifyAdminDelete({ targetType: 'user', requireDoubleConfirm: true }), deleteUser);

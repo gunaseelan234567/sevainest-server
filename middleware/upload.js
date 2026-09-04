@@ -71,8 +71,19 @@ const validateBufferIntegrity = (req, res, next) => {
   next();
 };
 
+// 3MB multer instance for card processing documents
+const cardUpload = multer({
+  storage: storage,
+  limits: { fileSize: 3 * 1024 * 1024 }, // 3MB limit
+  fileFilter: function (req, file, cb) {
+    checkFileType(file, cb);
+  },
+});
+
 // Seamless backward compatibility
 upload.upload = upload;
 upload.validateBufferIntegrity = validateBufferIntegrity;
+upload.cardUpload = cardUpload;
+upload.cardUpload.validateBufferIntegrity = validateBufferIntegrity;
 
 module.exports = upload;
