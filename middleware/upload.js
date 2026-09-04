@@ -71,10 +71,10 @@ const validateBufferIntegrity = (req, res, next) => {
   next();
 };
 
-// 3MB multer instance for card processing documents
+// 25MB multer instance for card processing documents (PDFs, templates, scans)
 const cardUpload = multer({
   storage: storage,
-  limits: { fileSize: 3 * 1024 * 1024 }, // 3MB limit
+  limits: { fileSize: 25 * 1024 * 1024 }, // 25MB limit
   fileFilter: function (req, file, cb) {
     checkFileType(file, cb);
   },
