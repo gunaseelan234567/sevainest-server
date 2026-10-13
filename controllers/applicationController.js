@@ -189,27 +189,87 @@ exports.getMyApplications = async (req, res, next) => {
   }
 };
 
-// @desc    Get all applications (Admin) — paginated
-// @route   GET /api/applications?page=1&limit=20&status=pending
+// @desc    Get all applications (Admin) — paginated with search and filters (default latest 100)
+// @route   GET /api/applications?page=1&limit=100&status=pending&search=...
 // @access  Private/Admin
 exports.getApplications = async (req, res, next) => {
   try {
     const page = Math.max(1, parseInt(req.query.page) || 1);
-    const limit = Math.min(5000, Math.max(1, parseInt(req.query.limit) || 20));
+    const limit = Math.min(500, Math.max(1, parseInt(req.query.limit) || 100));
     const skip = (page - 1) * limit;
 
     const filter = {};
-    if (req.query.status) filter.status = req.query.status;
+    if (req.query.status && req.query.status !== 'All') {
+      filter.status = req.query.status;
+    }
     if (req.query.agentId) filter.agentId = req.query.agentId;
 
-    const [applications, total] = await Promise.all([
+    // Date filtering (startDate / endDate)
+    if (req.query.startDate || req.query.endDate) {
+      filter.createdAt = {};
+      if (req.query.startDate) {
+        const start = new Date(req.query.startDate);
+        start.setHours(0, 0, 0, 0);
+        filter.createdAt.$gte = start;
+      }
+      if (req.query.endDate) {
+        const end = new Date(req.query.endDate);
+        end.setHours(23, 59, 59, 999);
+        filter.createdAt.$lte = end;
+      }
+    }
+
+    // Search query: searches application ID, agent name, service title
+    if (req.query.search && req.query.search.trim()) {
+      const term = req.query.search.trim();
+      const regex = new RegExp(term, 'i');
+
+      const [matchedAgents, matchedServices] = await Promise.all([
+        User.find({ name: regex, isDeleted: { $ne: true } }).select('_id').lean(),
+        Service.find({ title: regex, isDeleted: { $ne: true } }).select('_id').lean()
+      ]);
+
+      const orConditions = [
+        { applicationId: regex }
+      ];
+      if (matchedAgents.length > 0) {
+        orConditions.push({ agentId: { $in: matchedAgents.map(a => a._id) } });
+      }
+      if (matchedServices.length > 0) {
+        orConditions.push({ serviceId: { $in: matchedServices.map(s => s._id) } });
+      }
+      filter.$or = orConditions;
+    }
+
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+
+    const [applications, total, statsResult] = await Promise.all([
       Application.find(filter)
         .populate('serviceId', 'title category')
         .populate('agentId', 'name email phone')
         .sort('-createdAt')
         .skip(skip)
         .limit(limit),
-      Application.countDocuments(filter)
+      Application.countDocuments(filter),
+      (async () => {
+        const [all, pending, approved, returned, rejected, today] = await Promise.all([
+          Application.countDocuments(),
+          Application.countDocuments({ status: 'pending' }),
+          Application.countDocuments({ status: 'approved' }),
+          Application.countDocuments({ status: 'returned' }),
+          Application.countDocuments({ status: 'rejected' }),
+          Application.countDocuments({ createdAt: { $gte: todayStart } })
+        ]);
+        return {
+          all,
+          pending,
+          approved,
+          returned,
+          rejected,
+          today
+        };
+      })()
     ]);
 
     const signedApps = await Promise.all(applications.map(app => signApplicationUrls(app)));
@@ -220,8 +280,42 @@ exports.getApplications = async (req, res, next) => {
       total,
       page,
       pages: Math.ceil(total / limit),
+      stats: statsResult,
       data: signedApps
     });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// @desc    Get single application by ID or custom applicationId
+// @route   GET /api/applications/:id
+// @access  Private (Admin or Owning Agent)
+exports.getApplicationById = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    let application;
+    if (mongoose.Types.ObjectId.isValid(id)) {
+      application = await Application.findById(id)
+        .populate('serviceId', 'title category')
+        .populate('agentId', 'name email phone');
+    }
+    if (!application) {
+      application = await Application.findOne({ applicationId: id })
+        .populate('serviceId', 'title category')
+        .populate('agentId', 'name email phone');
+    }
+
+    if (!application) {
+      return res.status(404).json({ message: 'Application not found' });
+    }
+
+    if (req.user.role !== 'admin' && application.agentId?._id?.toString() !== req.user.id) {
+      return res.status(403).json({ message: 'Not authorized to view this application' });
+    }
+
+    const signedApp = await signApplicationUrls(application);
+    res.status(200).json({ success: true, data: signedApp });
   } catch (err) {
     next(err);
   }

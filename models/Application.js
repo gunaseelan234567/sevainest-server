@@ -76,6 +76,11 @@ const applicationSchema = new mongoose.Schema({
   timestamps: true,
 });
 
+// Indexes for fast querying of latest applications by status and date
+applicationSchema.index({ status: 1, createdAt: -1 });
+applicationSchema.index({ createdAt: -1 });
+applicationSchema.index({ agentId: 1, createdAt: -1 });
+
 // Exclude soft-deleted applications in normal queries
 applicationSchema.pre(/^find/, function () {
   if (this.getFilter().isDeleted === undefined) {
